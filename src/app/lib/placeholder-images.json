@@ -12,6 +12,12 @@
       "description": "Financial market candlestick chart",
       "imageUrl": "https://picsum.photos/seed/quant2/800/600",
       "imageHint": "stock chart"
+    },
+    {
+      "id": "heatmap-bg",
+      "description": "Market heatmap visualization",
+      "imageUrl": "https://picsum.photos/seed/quant3/1000/600",
+      "imageHint": "data visualization"
     }
   ]
 }
