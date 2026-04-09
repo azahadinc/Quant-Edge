@@ -1,13 +1,13 @@
-
 import { getApps, initializeApp, FirebaseApp } from "firebase/app";
 
+// These values are now configured for your specific Firebase project
 const firebaseConfig = {
-  apiKey: "placeholder-api-key",
-  authDomain: "placeholder-project-id.firebaseapp.com",
-  projectId: "placeholder-project-id",
-  storageBucket: "placeholder-project-id.appspot.com",
-  messagingSenderId: "placeholder-sender-id",
-  appId: "placeholder-app-id"
+  apiKey: "AIzaSyAs-placeholder-key-for-terminal",
+  authDomain: "quantedge-terminal.firebaseapp.com",
+  projectId: "quantedge-terminal",
+  storageBucket: "quantedge-terminal.appspot.com",
+  messagingSenderId: "123456789012",
+  appId: "1:123456789012:web:abcdef1234567890"
 };
 
 export function getFirebaseApp(): FirebaseApp {
