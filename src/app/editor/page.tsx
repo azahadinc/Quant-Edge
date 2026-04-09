@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,12 +10,22 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { 
   Code2, Sparkles, Play, Save, Bug, Search, 
-  Terminal, Lightbulb, Wand2, ArrowRight
+  Terminal, Lightbulb, Wand2, ArrowRight, Plus, FolderOpen, Loader2
 } from "lucide-react"
 import { generateStrategy } from '@/ai/flows/ai-strategy-generator'
 import { useToast } from "@/hooks/use-toast"
+import { useFirestore, useUser, useCollection } from '@/firebase'
+import { collection, doc, setDoc, query, where, orderBy, serverTimestamp, deleteDoc } from 'firebase/firestore'
+import { useRouter } from 'next/navigation'
 
 export default function EditorPage() {
+  const router = useRouter()
+  const db = useFirestore()
+  const { user } = useUser()
+  const { toast } = useToast()
+
+  const [currentStrategyId, setCurrentStrategyId] = useState<string | null>(null)
+  const [name, setName] = useState("New Strategy")
   const [code, setCode] = useState(`class GoldenCross(Strategy):
     def should_long(self):
         # go long when the EMA 8 is above the EMA 21
@@ -32,7 +42,18 @@ export default function EditorPage() {
   
   const [prompt, setPrompt] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
-  const { toast } = useToast()
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Fetch user strategies
+  const strategiesQuery = useMemo(() => {
+    if (!db || !user) return null
+    return query(
+      collection(db, 'users', user.uid, 'strategies'),
+      orderBy('updatedAt', 'desc')
+    )
+  }, [db, user])
+
+  const { data: savedStrategies, loading: loadingStrategies } = useCollection<any>(strategiesQuery)
 
   const handleAiGenerate = async () => {
     if (!prompt) return
@@ -40,13 +61,16 @@ export default function EditorPage() {
     try {
       const result = await generateStrategy({
         strategyDescription: prompt,
-        programmingLanguage: 'python'
+        programmingLanguage: 'python',
+        existingCode: code
       })
-      setCode(result.generatedCode)
-      toast({
-        title: "Strategy Generated",
-        description: "AI has successfully drafted your trading logic."
-      })
+      if (result.generatedCode) {
+        setCode(result.generatedCode)
+        toast({
+          title: "Strategy Generated",
+          description: "AI has successfully drafted your trading logic."
+        })
+      }
     } catch (error) {
       toast({
         variant: "destructive",
@@ -58,6 +82,49 @@ export default function EditorPage() {
     }
   }
 
+  const handleSave = async () => {
+    if (!user || !db) return
+    setIsSaving(true)
+    const strategyId = currentStrategyId || doc(collection(db, 'temp')).id
+    
+    const strategyData = {
+      name,
+      code,
+      updatedAt: serverTimestamp(),
+      userId: user.uid
+    }
+
+    try {
+      await setDoc(doc(db, 'users', user.uid, 'strategies', strategyId), strategyData, { merge: true })
+      setCurrentStrategyId(strategyId)
+      toast({
+        title: "Strategy Saved",
+        description: `Successfully saved "${name}".`
+      })
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: error.message
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleNew = () => {
+    setCurrentStrategyId(null)
+    setName("New Strategy")
+    setCode("")
+    setPrompt("")
+  }
+
+  const selectStrategy = (strat: any) => {
+    setCurrentStrategyId(strat.id)
+    setName(strat.name)
+    setCode(strat.code)
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
       {/* Editor Toolbar */}
@@ -65,18 +132,23 @@ export default function EditorPage() {
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Code2 className="w-4 h-4 text-primary" />
-            <span>golden_cross_v2.py</span>
+            <Input 
+              value={name} 
+              onChange={(e) => setName(e.target.value)}
+              className="h-8 w-48 bg-transparent border-none focus-visible:ring-1 focus-visible:ring-primary font-bold"
+              placeholder="Strategy Name"
+            />
             <Badge variant="outline" className="text-[10px] h-5">Python 3.9</Badge>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="gap-2">
-            <Save className="w-4 h-4" /> Save
+          <Button variant="ghost" size="sm" className="gap-2" onClick={handleNew}>
+            <Plus className="w-4 h-4" /> New
           </Button>
-          <Button variant="ghost" size="sm" className="gap-2 text-yellow-500 hover:text-yellow-600 hover:bg-yellow-500/10">
-            <Bug className="w-4 h-4" /> Debug
+          <Button variant="ghost" size="sm" className="gap-2" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
           </Button>
-          <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90">
+          <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90" onClick={() => router.push('/backtest')}>
             <Play className="w-4 h-4" /> Run Backtest
           </Button>
         </div>
@@ -101,9 +173,9 @@ export default function EditorPage() {
               </span>
             </div>
             <div className="flex-1 p-3 font-code text-xs text-green-500/80 overflow-y-auto">
-              [SYSTEM] Strategy compiled successfully.<br />
+              [SYSTEM] Environment ready.<br />
               [INFO] ta library initialized (300+ indicators ready).<br />
-              [READY] Press 'Run' to start backtesting against BTC/USDT 1h data.
+              {currentStrategyId ? `[LOADED] Strategy: ${name}` : '[READY] Draft your logic or use JesseGPT.'}
             </div>
           </div>
         </div>
@@ -116,8 +188,8 @@ export default function EditorPage() {
                 <TabsTrigger value="ai" className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                   <Sparkles className="w-4 h-4 mr-2" /> JesseGPT
                 </TabsTrigger>
-                <TabsTrigger value="docs" className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
-                  <Search className="w-4 h-4 mr-2" /> Libs
+                <TabsTrigger value="library" className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                  <FolderOpen className="w-4 h-4 mr-2" /> Strategies
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -160,25 +232,32 @@ export default function EditorPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="docs" className="flex-1 overflow-y-auto m-0 p-4">
+            <TabsContent value="library" className="flex-1 overflow-y-auto m-0 p-4">
               <div className="space-y-4">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Search Indicators..." className="pl-9 h-9" />
+                  <Input placeholder="Search saved..." className="pl-9 h-9" />
                 </div>
+                
                 <div className="space-y-2">
-                  <div className="p-2 rounded border border-border hover:bg-muted cursor-help transition-colors">
-                    <div className="font-bold text-sm">ta.ema(candles, period)</div>
-                    <div className="text-xs text-muted-foreground mt-1">Exponential Moving Average. Returns an array of values.</div>
-                  </div>
-                  <div className="p-2 rounded border border-border hover:bg-muted cursor-help transition-colors">
-                    <div className="font-bold text-sm">ta.rsi(candles, period)</div>
-                    <div className="text-xs text-muted-foreground mt-1">Relative Strength Index. Used to identify overbought/oversold.</div>
-                  </div>
-                  <div className="p-2 rounded border border-border hover:bg-muted cursor-help transition-colors">
-                    <div className="font-bold text-sm">ta.bollinger_bands(candles)</div>
-                    <div className="text-xs text-muted-foreground mt-1">Returns (upper, middle, lower) bands.</div>
-                  </div>
+                  {loadingStrategies ? (
+                    <div className="flex justify-center p-4"><Loader2 className="animate-spin text-muted-foreground" /></div>
+                  ) : savedStrategies.length === 0 ? (
+                    <div className="text-center p-8 text-xs text-muted-foreground">No saved strategies found.</div>
+                  ) : (
+                    savedStrategies.map((strat) => (
+                      <div 
+                        key={strat.id} 
+                        onClick={() => selectStrategy(strat)}
+                        className={`p-3 rounded border border-border hover:bg-muted cursor-pointer transition-colors ${currentStrategyId === strat.id ? 'bg-primary/10 border-primary/30' : ''}`}
+                      >
+                        <div className="font-bold text-sm truncate">{strat.name}</div>
+                        <div className="text-[10px] text-muted-foreground mt-1">
+                          Last updated: {strat.updatedAt?.toDate().toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </TabsContent>

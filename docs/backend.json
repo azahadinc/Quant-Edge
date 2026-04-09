@@ -1,10 +1,50 @@
 
 {
-  "entities": {},
+  "entities": {
+    "Strategy": {
+      "title": "Strategy",
+      "description": "An algorithmic trading strategy defined in Python for the Jesse framework.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the strategy."
+        },
+        "code": {
+          "type": "string",
+          "description": "The Python code implementation of the strategy."
+        },
+        "description": {
+          "type": "string",
+          "description": "A brief description of what the strategy does."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The last time the strategy was modified."
+        },
+        "userId": {
+          "type": "string",
+          "description": "The ID of the user who owns this strategy."
+        }
+      },
+      "required": [
+        "name",
+        "code",
+        "userId"
+      ]
+    }
+  },
   "auth": {
     "providers": [
       "google.com",
       "password"
     ]
+  },
+  "firestore": {
+    "/users/{userId}/strategies/{strategyId}": {
+      "schema": "#/backend/entities/Strategy",
+      "description": "User created trading strategies"
+    }
   }
 }

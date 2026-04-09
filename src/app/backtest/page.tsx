@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,8 @@ import {
   BarChart4, FileText, Settings2, PlayCircle, Loader2,
   CheckCircle2, XCircle, ArrowUpRight, ArrowDownRight
 } from "lucide-react"
+import { useFirestore, useUser, useCollection } from '@/firebase'
+import { collection, query, orderBy } from 'firebase/firestore'
 
 interface Trade {
   id: string;
@@ -26,6 +28,8 @@ interface Trade {
 }
 
 export default function BacktestPage() {
+  const db = useFirestore()
+  const { user } = useUser()
   const [isRunning, setIsRunning] = useState(false)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
@@ -37,7 +41,20 @@ export default function BacktestPage() {
     winRate: string;
   } | null>(null)
   
+  const [selectedStrategy, setSelectedStrategy] = useState<string>("")
+  
   const logEndRef = useRef<HTMLDivElement>(null)
+
+  // Fetch user strategies
+  const strategiesQuery = useMemo(() => {
+    if (!db || !user) return null
+    return query(
+      collection(db, 'users', user.uid, 'strategies'),
+      orderBy('updatedAt', 'desc')
+    )
+  }, [db, user])
+
+  const { data: savedStrategies } = useCollection<any>(strategiesQuery)
 
   useEffect(() => {
     if (logEndRef.current) {
@@ -46,18 +63,23 @@ export default function BacktestPage() {
   }, [logs])
 
   const runSimulation = () => {
+    if (!selectedStrategy) return
+    
     setIsRunning(true)
     setProgress(0)
     setLogs(["[SYSTEM] Initializing Backtest Engine...", "[DATA] Fetching historical OHLCV data for BTC/USDT..."])
     setTrades([])
     setResults(null)
 
+    const stratObj = savedStrategies.find(s => s.id === selectedStrategy)
+    const stratName = stratObj?.name || "Strategy"
+
     const steps = [
-      { p: 10, m: "[SYSTEM] Loading Strategy: Golden Cross EMA" },
-      { p: 25, m: "[DATA] Pre-calculating indicators (EMA 8, EMA 21)..." },
+      { p: 10, m: `[SYSTEM] Loading Strategy: ${stratName}` },
+      { p: 25, m: "[DATA] Pre-calculating indicators based on source code..." },
       { p: 40, m: "[ENGINE] Starting iteration through 8,760 candles..." },
-      { p: 60, m: "[TRADE] Signal detected at 2023-04-12 14:00. Opening LONG." },
-      { p: 75, m: "[TRADE] Trailing stop-loss triggered at 2023-05-01. Closing position." },
+      { p: 60, m: "[TRADE] Signal detected. Opening LONG position." },
+      { p: 75, m: "[TRADE] Target reached. Closing position." },
       { p: 90, m: "[SYSTEM] Calculating final performance metrics..." },
       { p: 100, m: "[SUCCESS] Backtest completed successfully." }
     ]
@@ -96,7 +118,7 @@ export default function BacktestPage() {
     <div className="flex-1 flex flex-col p-6 space-y-6 overflow-auto">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Strategy Backtesting</h1>
+          <h1 className="text-3xl font-bold tracking-tight font-headline">Strategy Backtesting</h1>
           <p className="text-muted-foreground">Verify your strategies with high-precision historical data.</p>
         </div>
       </div>
@@ -112,14 +134,15 @@ export default function BacktestPage() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label>Select Strategy</Label>
-              <Select defaultValue="golden-cross">
+              <Select value={selectedStrategy} onValueChange={setSelectedStrategy}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select strategy" />
+                  <SelectValue placeholder="Select a strategy" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="golden-cross">Golden Cross EMA</SelectItem>
-                  <SelectItem value="mean-reversion">Mean Reversion RSI</SelectItem>
-                  <SelectItem value="breakout">Bollinger Breakout</SelectItem>
+                  {savedStrategies.map(strat => (
+                    <SelectItem key={strat.id} value={strat.id}>{strat.name}</SelectItem>
+                  ))}
+                  {savedStrategies.length === 0 && <SelectItem value="none" disabled>No saved strategies</SelectItem>}
                 </SelectContent>
               </Select>
             </div>
@@ -151,7 +174,7 @@ export default function BacktestPage() {
             <Button 
               className="w-full bg-primary hover:bg-primary/90 mt-4" 
               onClick={runSimulation}
-              disabled={isRunning}
+              disabled={isRunning || !selectedStrategy}
             >
               {isRunning ? (
                 <> <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Running... </>
@@ -212,7 +235,7 @@ export default function BacktestPage() {
 
                <Card>
                  <CardHeader className="flex flex-row items-center justify-between">
-                   <CardTitle className="flex items-center gap-2 text-lg">
+                   <CardTitle className="flex items-center gap-2 text-lg font-headline">
                      <FileText className="w-5 h-5 text-primary" /> Trade History
                    </CardTitle>
                  </CardHeader>

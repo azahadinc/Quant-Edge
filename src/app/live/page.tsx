@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,8 @@ import {
   Loader2, Plus, Coins, BarChart3
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useFirestore, useUser, useCollection } from '@/firebase'
+import { collection, query, orderBy } from 'firebase/firestore'
 
 interface LiveTrade {
   id: string;
@@ -42,6 +44,8 @@ interface DeploymentConfig {
 }
 
 export default function LiveTradingPage() {
+  const db = useFirestore()
+  const { user } = useUser()
   const [isDeploying, setIsDeploying] = useState(false)
   const [isLive, setIsLive] = useState(false)
   const [isConfigOpen, setIsConfigOpen] = useState(false)
@@ -49,7 +53,7 @@ export default function LiveTradingPage() {
   const [logs, setLogs] = useState<string[]>([])
   const [equity, setEquity] = useState(47502.12)
   const [config, setConfig] = useState<DeploymentConfig>({
-    strategy: 'golden-cross',
+    strategy: '',
     assetClass: 'crypto',
     symbol: 'BTC/USDT',
     amount: '5000',
@@ -58,6 +62,17 @@ export default function LiveTradingPage() {
 
   const logEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+
+  // Fetch user strategies
+  const strategiesQuery = useMemo(() => {
+    if (!db || !user) return null
+    return query(
+      collection(db, 'users', user.uid, 'strategies'),
+      orderBy('updatedAt', 'desc')
+    )
+  }, [db, user])
+
+  const { data: savedStrategies } = useCollection<any>(strategiesQuery)
 
   useEffect(() => {
     if (logEndRef.current) {
@@ -88,7 +103,7 @@ export default function LiveTradingPage() {
 
       if (Math.random() > 0.9) {
         const msgs = [
-          `[STRATEGY] ${config.strategy.toUpperCase()} processing ${config.symbol} ${config.timeframe} data...`,
+          `[STRATEGY] Processing ${config.symbol} ${config.timeframe} data...`,
           "[EXCHANGE] Heartbeat: Latency 4.2ms",
           "[RISK] Margin level check: Healthy",
           `[ORDER] Updating trailing stop for ${config.symbol}...`
@@ -101,11 +116,16 @@ export default function LiveTradingPage() {
   }, [isLive, config]);
 
   const deployBot = () => {
+    if (!config.strategy) return
+    
     setIsConfigOpen(false)
     setIsDeploying(true)
+    
+    const stratName = savedStrategies.find(s => s.id === config.strategy)?.name || "Bot"
+
     setLogs([
       `[SYSTEM] Initializing secure connection for ${config.assetClass.toUpperCase()}...`,
-      `[SYSTEM] Validating strategy: ${config.strategy.toUpperCase()}...`,
+      `[SYSTEM] Validating strategy: ${stratName.toUpperCase()}...`,
       `[SYSTEM] Allocation confirmed: $${parseFloat(config.amount).toLocaleString()}`
     ])
     
@@ -116,7 +136,7 @@ export default function LiveTradingPage() {
         { 
           id: '1', 
           pair: config.symbol, 
-          strategy: config.strategy === 'golden-cross' ? 'Golden Cross' : config.strategy === 'mean-reversion' ? 'Mean Reversion' : 'Breakout', 
+          strategy: stratName, 
           side: 'LONG', 
           pnl: 0.00, 
           amount: `${(parseFloat(config.amount) / 64000).toFixed(4)} UNIT`, 
@@ -129,7 +149,7 @@ export default function LiveTradingPage() {
       setLogs(prev => [...prev, "[SUCCESS] Bot successfully deployed to production.", "[LIVE] Monitoring signals..."])
       toast({
         title: "Bot Deployed",
-        description: `Strategy ${config.strategy} is now live on ${config.symbol}.`
+        description: `Strategy ${stratName} is now live on ${config.symbol}.`
       })
     }, 2500)
   }
@@ -155,7 +175,7 @@ export default function LiveTradingPage() {
     <div className="flex-1 flex flex-col p-6 space-y-6 overflow-auto">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Live Trading</h1>
+          <h1 className="text-3xl font-bold tracking-tight font-headline">Live Trading</h1>
           <p className="text-muted-foreground">Monitor and control your active algorithmic sessions in real-time.</p>
         </div>
         <div className="flex gap-2">
@@ -173,7 +193,7 @@ export default function LiveTradingPage() {
               </DialogTrigger>
               <DialogContent className="sm:max-w-[425px] bg-card border-border">
                 <DialogHeader>
-                  <DialogTitle>Deploy New Strategy</DialogTitle>
+                  <DialogTitle className="font-headline">Deploy New Strategy</DialogTitle>
                   <DialogDescription>
                     Configure your execution parameters for live market deployment.
                   </DialogDescription>
@@ -186,9 +206,10 @@ export default function LiveTradingPage() {
                         <SelectValue placeholder="Select strategy" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="golden-cross">Golden Cross EMA</SelectItem>
-                        <SelectItem value="mean-reversion">Mean Reversion RSI</SelectItem>
-                        <SelectItem value="breakout">Bollinger Breakout</SelectItem>
+                        {savedStrategies.map(strat => (
+                          <SelectItem key={strat.id} value={strat.id}>{strat.name}</SelectItem>
+                        ))}
+                        {savedStrategies.length === 0 && <SelectItem value="none" disabled>No saved strategies</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
@@ -243,7 +264,7 @@ export default function LiveTradingPage() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button onClick={deployBot} className="w-full bg-primary hover:bg-primary/90">
+                  <Button onClick={deployBot} className="w-full bg-primary hover:bg-primary/90" disabled={!config.strategy}>
                     <Play className="w-4 h-4 mr-2" /> Start Live Execution
                   </Button>
                 </DialogFooter>
@@ -267,7 +288,7 @@ export default function LiveTradingPage() {
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg flex items-center gap-2">
+              <CardTitle className="text-lg flex items-center gap-2 font-headline">
                 <Activity className="w-4 h-4 text-primary" /> Active Executions
               </CardTitle>
               {isLive && <Badge className="bg-green-500 animate-pulse">LIVE CONNECTED</Badge>}
