@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, Github, Mail, Loader2, AlertCircle } from "lucide-react";
+import { BarChart3, Github, Mail, Loader2, AlertCircle, ArrowLeft } from "lucide-react";
 import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -69,6 +69,15 @@ export default function LoginPage() {
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-950/80 to-primary/20" />
+      </div>
+
+      {/* Back Button */}
+      <div className="absolute top-6 left-6 z-20">
+        <Button variant="ghost" asChild className="text-white hover:bg-white/10 gap-2">
+          <Link href="/">
+            <ArrowLeft className="w-4 h-4" /> Back to Home
+          </Link>
+        </Button>
       </div>
 
       {/* Login Card */}
