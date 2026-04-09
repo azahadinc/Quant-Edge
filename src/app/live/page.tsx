@@ -6,11 +6,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { 
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger 
+} from "@/components/ui/dialog"
 import { 
   Play, Pause, Activity, Zap, ShieldCheck, 
   ArrowUpRight, ArrowDownRight, RefreshCw,
   Terminal, StopCircle, Settings2, AlertTriangle,
-  Loader2
+  Loader2, Plus, Coins, BarChart3
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -27,23 +33,38 @@ interface LiveTrade {
   timestamp: string;
 }
 
+interface DeploymentConfig {
+  strategy: string;
+  assetClass: string;
+  symbol: string;
+  amount: string;
+  timeframe: string;
+}
+
 export default function LiveTradingPage() {
   const [isDeploying, setIsDeploying] = useState(false)
   const [isLive, setIsLive] = useState(false)
+  const [isConfigOpen, setIsConfigOpen] = useState(false)
   const [activeTrades, setActiveTrades] = useState<LiveTrade[]>([])
   const [logs, setLogs] = useState<string[]>([])
   const [equity, setEquity] = useState(47502.12)
+  const [config, setConfig] = useState<DeploymentConfig>({
+    strategy: 'golden-cross',
+    assetClass: 'crypto',
+    symbol: 'BTC/USDT',
+    amount: '5000',
+    timeframe: '1h'
+  })
+
   const logEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
-  // Auto-scroll logs
   useEffect(() => {
     if (logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [logs])
 
-  // Simulation loop for live price and PnL updates
   useEffect(() => {
     if (!isLive) return;
 
@@ -51,10 +72,10 @@ export default function LiveTradingPage() {
       setActiveTrades(current => current.map(trade => {
         if (trade.status === 'CLOSED') return trade;
         
-        // Random price fluctuation
-        const change = (Math.random() - 0.5) * 10;
-        const newPrice = parseFloat(trade.currentPrice.replace(/[^0-9.]/g, '')) + change;
-        const pnlChange = (Math.random() - 0.45) * 0.1; // Slight upward bias
+        const change = (Math.random() - 0.5) * (parseFloat(trade.currentPrice.replace(/[^0-9.]/g, '')) * 0.001);
+        const currentVal = parseFloat(trade.currentPrice.replace(/[^0-9.]/g, ''));
+        const newPrice = currentVal + change;
+        const pnlChange = (Math.random() - 0.48) * 0.05; 
         
         return {
           ...trade,
@@ -63,27 +84,30 @@ export default function LiveTradingPage() {
         };
       }));
 
-      // Update total equity based on PnL
       setEquity(prev => prev + (Math.random() - 0.48) * 5);
 
-      // Occasional log messages
-      if (Math.random() > 0.85) {
+      if (Math.random() > 0.9) {
         const msgs = [
-          "[STRATEGY] Indicators updated. EMA cross remains bullish.",
-          "[EXCHANGE] WebSocket heartbeat received.",
-          "[RISK] Margin level check: 450% (Healthy)",
-          "[ORDER] Updating trailing stop-loss for BTC/USDT..."
+          `[STRATEGY] ${config.strategy.toUpperCase()} processing ${config.symbol} ${config.timeframe} data...`,
+          "[EXCHANGE] Heartbeat: Latency 4.2ms",
+          "[RISK] Margin level check: Healthy",
+          `[ORDER] Updating trailing stop for ${config.symbol}...`
         ];
         setLogs(prev => [...prev.slice(-49), msgs[Math.floor(Math.random() * msgs.length)]]);
       }
-    }, 2000);
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, [isLive]);
+  }, [isLive, config]);
 
   const deployBot = () => {
+    setIsConfigOpen(false)
     setIsDeploying(true)
-    setLogs(["[SYSTEM] Initializing secure connection to Binance API...", "[SYSTEM] Validating strategy: Golden Cross V2..."])
+    setLogs([
+      `[SYSTEM] Initializing secure connection for ${config.assetClass.toUpperCase()}...`,
+      `[SYSTEM] Validating strategy: ${config.strategy.toUpperCase()}...`,
+      `[SYSTEM] Allocation confirmed: $${parseFloat(config.amount).toLocaleString()}`
+    ])
     
     setTimeout(() => {
       setIsLive(true)
@@ -91,25 +115,13 @@ export default function LiveTradingPage() {
       setActiveTrades([
         { 
           id: '1', 
-          pair: 'BTC/USDT', 
-          strategy: 'Golden Cross', 
+          pair: config.symbol, 
+          strategy: config.strategy === 'golden-cross' ? 'Golden Cross' : config.strategy === 'mean-reversion' ? 'Mean Reversion' : 'Breakout', 
           side: 'LONG', 
-          pnl: 0.15, 
-          amount: '0.45 BTC', 
+          pnl: 0.00, 
+          amount: `${(parseFloat(config.amount) / 64000).toFixed(4)} UNIT`, 
           entryPrice: '64,120.50',
-          currentPrice: '64,231.50',
-          status: 'OPEN',
-          timestamp: new Date().toLocaleTimeString()
-        },
-        { 
-          id: '2', 
-          pair: 'ETH/USDT', 
-          strategy: 'Mean Reversion', 
-          side: 'SHORT', 
-          pnl: -0.05, 
-          amount: '12.2 ETH', 
-          entryPrice: '3,425.00',
-          currentPrice: '3,421.20',
+          currentPrice: '64,120.50',
           status: 'OPEN',
           timestamp: new Date().toLocaleTimeString()
         }
@@ -117,7 +129,7 @@ export default function LiveTradingPage() {
       setLogs(prev => [...prev, "[SUCCESS] Bot successfully deployed to production.", "[LIVE] Monitoring signals..."])
       toast({
         title: "Bot Deployed",
-        description: "Your algorithmic session is now live on the exchange."
+        description: `Strategy ${config.strategy} is now live on ${config.symbol}.`
       })
     }, 2500)
   }
@@ -152,16 +164,98 @@ export default function LiveTradingPage() {
               <AlertTriangle className="w-4 h-4" /> Panic Sell All
             </Button>
           )}
-          {!isLive ? (
-            <Button 
-              className="gap-2 bg-green-600 hover:bg-green-700" 
-              onClick={deployBot}
-              disabled={isDeploying}
-            >
-              {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-              {isDeploying ? "Deploying..." : "Deploy Strategy"}
+          {!isLive && !isDeploying && (
+            <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
+              <DialogTrigger asChild>
+                <Button className="gap-2 bg-green-600 hover:bg-green-700">
+                  <Plus className="w-4 h-4" /> New Session
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px] bg-card border-border">
+                <DialogHeader>
+                  <DialogTitle>Deploy New Strategy</DialogTitle>
+                  <DialogDescription>
+                    Configure your execution parameters for live market deployment.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="strategy" className="text-right">Strategy</Label>
+                    <Select value={config.strategy} onValueChange={(v) => setConfig({...config, strategy: v})}>
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select strategy" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="golden-cross">Golden Cross EMA</SelectItem>
+                        <SelectItem value="mean-reversion">Mean Reversion RSI</SelectItem>
+                        <SelectItem value="breakout">Bollinger Breakout</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="asset" className="text-right">Asset Class</Label>
+                    <Select value={config.assetClass} onValueChange={(v) => setConfig({...config, assetClass: v})}>
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select asset" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="crypto">Cryptocurrency</SelectItem>
+                        <SelectItem value="stocks">US Stocks</SelectItem>
+                        <SelectItem value="commodities">Commodities</SelectItem>
+                        <SelectItem value="prop">Prop (Forex/Indices)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="symbol" className="text-right">Symbol</Label>
+                    <Input 
+                      id="symbol" 
+                      value={config.symbol} 
+                      onChange={(e) => setConfig({...config, symbol: e.target.value})}
+                      className="col-span-3" 
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="amount" className="text-right">Amount ($)</Label>
+                    <Input 
+                      id="amount" 
+                      type="number"
+                      value={config.amount} 
+                      onChange={(e) => setConfig({...config, amount: e.target.value})}
+                      className="col-span-3" 
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="timeframe" className="text-right">Timeframe</Label>
+                    <Select value={config.timeframe} onValueChange={(v) => setConfig({...config, timeframe: v})}>
+                      <SelectTrigger className="col-span-3">
+                        <SelectValue placeholder="Select interval" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1m">1 Minute</SelectItem>
+                        <SelectItem value="5m">5 Minutes</SelectItem>
+                        <SelectItem value="15m">15 Minutes</SelectItem>
+                        <SelectItem value="1h">1 Hour</SelectItem>
+                        <SelectItem value="4h">4 Hours</SelectItem>
+                        <SelectItem value="1d">1 Day</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={deployBot} className="w-full bg-primary hover:bg-primary/90">
+                    <Play className="w-4 h-4 mr-2" /> Start Live Execution
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {isDeploying && (
+            <Button disabled className="gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Deploying...
             </Button>
-          ) : (
+          )}
+          {isLive && (
             <Button variant="outline" className="gap-2" onClick={stopBot}>
               <StopCircle className="w-4 h-4 text-red-500" /> Stop Session
             </Button>
@@ -171,7 +265,6 @@ export default function LiveTradingPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* Active Executions */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -184,6 +277,7 @@ export default function LiveTradingPage() {
                 <div className="h-40 flex flex-col items-center justify-center border-2 border-dashed rounded-lg opacity-40">
                   <Zap className="w-8 h-8 mb-2" />
                   <p className="text-sm font-medium">No bots currently active</p>
+                  <p className="text-xs text-muted-foreground mt-1">Configure a new session to begin trading</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -218,7 +312,6 @@ export default function LiveTradingPage() {
             </CardContent>
           </Card>
 
-          {/* Live Output Console */}
           <Card className="bg-black/90 border-primary/20">
             <CardHeader className="py-3 border-b border-white/5">
               <CardTitle className="text-xs font-mono text-primary flex items-center gap-2">
@@ -239,7 +332,6 @@ export default function LiveTradingPage() {
         </div>
 
         <div className="space-y-6">
-          {/* Real-time Performance */}
           <Card className="bg-primary/5 border-primary/20">
             <CardHeader>
               <CardTitle className="text-sm font-medium">Session Equity</CardTitle>
@@ -252,7 +344,6 @@ export default function LiveTradingPage() {
             </CardContent>
           </Card>
 
-          {/* Risk Monitoring */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -262,17 +353,17 @@ export default function LiveTradingPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-medium">
+                  <span className="text-muted-foreground">Allocation Used</span>
+                  <span className="font-mono text-primary">${isLive ? parseFloat(config.amount).toLocaleString() : '0'} / $50,000</span>
+                </div>
+                <Progress value={isLive ? (parseFloat(config.amount) / 50000) * 100 : 0} className="h-1.5" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-medium">
                   <span className="text-muted-foreground">Daily Loss Limit</span>
                   <span className="font-mono text-primary">$450 / $5,000</span>
                 </div>
                 <Progress value={9} className="h-1.5" />
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-medium">
-                  <span className="text-muted-foreground">Exposure Ratio</span>
-                  <span className="font-mono text-primary">12.5% / 25%</span>
-                </div>
-                <Progress value={50} className="h-1.5" />
               </div>
               <div className="pt-2">
                 <div className="flex justify-between items-center text-[10px] uppercase font-bold text-muted-foreground">
@@ -285,7 +376,6 @@ export default function LiveTradingPage() {
             </CardContent>
           </Card>
 
-          {/* Quick Metrics */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -294,7 +384,7 @@ export default function LiveTradingPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold font-mono">4.2ms</div>
-              <p className="text-xs text-muted-foreground mt-1">Binance Direct-API connected</p>
+              <p className="text-xs text-muted-foreground mt-1">Direct-API connected</p>
             </CardContent>
           </Card>
         </div>
