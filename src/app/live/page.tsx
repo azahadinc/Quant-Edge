@@ -67,8 +67,8 @@ export default function LiveTradingPage() {
     "[AWS] Connection to us-east-1 instance established.",
     "[AWS] Worker v2.4 initialized and awaiting instructions."
   ])
-  const [equity, setEquity] = useState(50000.00)
-  const [hwm, setHwm] = useState(50000.00) 
+  const [equity, setEquity] = useState(53210.12)
+  const [hwm, setHwm] = useState(53210.12) 
   const [dailyStartingEquity] = useState(50000.00)
   const [isAccountSuspended, setIsAccountSuspended] = useState(false)
   
@@ -81,6 +81,7 @@ export default function LiveTradingPage() {
     broker: 'alpaca_paper',
     symbol: 'BTC/USDT',
     amount: '5000',
+    worker: 'ec2-01'
   })
 
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -164,7 +165,7 @@ export default function LiveTradingPage() {
     
     setLogs(prev => [...prev, 
       `[SYSTEM] Booting Compliance Engine...`, 
-      `[AWS] Transmitting deployment intent to ec2-worker-01...`,
+      `[AWS] Transmitting deployment intent to ${config.worker}...`,
       `[AUTH] Authenticating with ${config.broker} via secure vault...`, 
       `[SUCCESS] Worker assigned. Execution starting.`
     ])
@@ -185,7 +186,8 @@ export default function LiveTradingPage() {
       entryTime: serverTimestamp(),
       userId: user.uid,
       tradingAccountId: 'default',
-      infrastructure: 'aws-ec2-us-east-1'
+      infrastructure: 'aws-ec2-us-east-1',
+      workerId: config.worker
     }
 
     try {
@@ -194,7 +196,7 @@ export default function LiveTradingPage() {
         positionData,
         { merge: true }
       )
-      toast({ title: "Remote Bot Deployed", description: `Strategy logic now executing on AWS instance.` })
+      toast({ title: "Remote Bot Deployed", description: `Strategy logic now executing on AWS instance ${config.worker}.` })
     } catch (e) {
       toast({ variant: "destructive", title: "Deployment Failed" })
     } finally {
@@ -273,7 +275,7 @@ export default function LiveTradingPage() {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">Worker</Label>
-                    <Select defaultValue="ec2-01">
+                    <Select value={config.worker} onValueChange={(v) => setConfig({...config, worker: v})}>
                         <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="ec2-01">AWS EC2 (us-east-1) - Online</SelectItem>
@@ -415,6 +417,7 @@ export default function LiveTradingPage() {
                                 <div className="flex items-center gap-3">
                                   <RuntimeDisplay entryTime={pos.entryTime} />
                                   <span className="text-[10px] text-primary/60 font-mono">ID: {pos.id.substring(0, 8)}</span>
+                                  <Badge variant="secondary" className="text-[8px] h-4 uppercase">AWS_{pos.workerId}</Badge>
                                 </div>
                               </div>
                             </div>
