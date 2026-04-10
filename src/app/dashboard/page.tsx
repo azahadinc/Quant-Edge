@@ -4,16 +4,21 @@
 import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { 
-  TrendingUp, TrendingDown, Wallet, Target, Zap, 
+  TrendingUp, Wallet, Target, Zap, 
   Activity, ShieldCheck, Trophy, ArrowRight,
-  ShieldAlert, Clock, CalendarDays
+  ShieldAlert, Clock, CalendarDays, Database
 } from "lucide-react"
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 import Link from 'next/link'
+import { useFirestore, useUser } from '@/firebase'
+import { doc, serverTimestamp } from 'firebase/firestore'
+import { setDocumentNonBlocking } from '@/firebase/non-blocking-updates'
+import { useToast } from '@/hooks/use-toast'
 
 const performanceData = [
   { time: '09:00', value: 45200 },
@@ -34,6 +39,44 @@ const topMovers = [
 ]
 
 export default function DashboardPage() {
+  const db = useFirestore()
+  const { user } = useUser()
+  const { toast } = useToast()
+
+  const seedDemoData = () => {
+    if (!db || !user) return;
+    
+    const strategyId = "golden-cross-demo";
+    const strategyData = {
+      id: strategyId,
+      name: "GoldenCross",
+      code: `class GoldenCross(Strategy):
+    def should_long(self):
+        # go long when the EMA 8 is above the EMA 21
+        short_ema = ta.ema(self.candles, 8)
+        long_ema = ta.ema(self.candles, 21)
+        return short_ema > long_ema
+
+    def go_long(self):
+        entry_price = self.price - 10
+        qty = utils.size_to_qty(self.balance*0.05, entry_price)
+        self.buy = qty, entry_price
+        self.take_profit = qty, entry_price*1.2
+        self.stop_loss = qty, entry_price*0.9`,
+      language: 'python',
+      userId: user.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    setDocumentNonBlocking(doc(db, 'users', user.uid, 'strategies', strategyId), strategyData, { merge: true });
+    
+    toast({
+      title: "Strategy Seeded",
+      description: "GoldenCross has been added to your Strategy Library."
+    });
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-auto p-6 space-y-6">
       <div className="flex justify-between items-end">
@@ -42,6 +85,9 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">Institutional Trading Mode. Compliance: <span className="text-green-500 font-bold uppercase text-xs">Verified</span></p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={seedDemoData} className="gap-2 border-primary/20 hover:bg-primary/10">
+            <Database className="w-4 h-4" /> Seed Test Strategy
+          </Button>
           <Badge variant="outline" className="px-3 py-1 bg-primary/10 border-primary/20 text-primary">PROP FIRM ACTIVE</Badge>
           <Badge variant="secondary" className="px-3 py-1">Phase 1 Evaluation</Badge>
         </div>

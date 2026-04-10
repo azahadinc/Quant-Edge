@@ -14,8 +14,8 @@ import {
 } from "lucide-react"
 import { generateStrategy } from '@/ai/flows/ai-strategy-generator'
 import { useToast } from "@/hooks/use-toast"
-import { useFirestore, useUser, useCollection } from '@/firebase'
-import { collection, doc, setDoc, query, where, orderBy, serverTimestamp, deleteDoc } from 'firebase/firestore'
+import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebase'
+import { collection, doc, setDoc, query, orderBy, serverTimestamp, deleteDoc } from 'firebase/firestore'
 import { useRouter } from 'next/navigation'
 
 export default function EditorPage() {
@@ -25,7 +25,7 @@ export default function EditorPage() {
   const { toast } = useToast()
 
   const [currentStrategyId, setCurrentStrategyId] = useState<string | null>(null)
-  const [name, setName] = useState("New Strategy")
+  const [name, setName] = useState("GoldenCross")
   const [code, setCode] = useState(`class GoldenCross(Strategy):
     def should_long(self):
         # go long when the EMA 8 is above the EMA 21
@@ -50,7 +50,7 @@ export default function EditorPage() {
   ])
 
   // Fetch user strategies
-  const strategiesQuery = useMemo(() => {
+  const strategiesQuery = useMemoFirebase(() => {
     if (!db || !user) return null
     return query(
       collection(db, 'users', user.uid, 'strategies'),
@@ -58,7 +58,7 @@ export default function EditorPage() {
     )
   }, [db, user])
 
-  const { data: savedStrategies, loading: loadingStrategies } = useCollection<any>(strategiesQuery)
+  const { data: savedStrategies, isLoading: loadingStrategies } = useCollection<any>(strategiesQuery)
 
   const handleAiGenerate = async () => {
     if (!prompt) return
@@ -104,10 +104,12 @@ export default function EditorPage() {
     const strategyId = currentStrategyId || doc(collection(db, 'temp')).id
     
     const strategyData = {
+      id: strategyId,
       name: name || "Untitled Strategy",
       code,
       updatedAt: serverTimestamp(),
-      userId: user.uid
+      userId: user.uid,
+      language: 'python'
     }
 
     try {
