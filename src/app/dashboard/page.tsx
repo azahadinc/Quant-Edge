@@ -1,7 +1,7 @@
 
 "use client"
 
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,13 +9,13 @@ import { Progress } from "@/components/ui/progress"
 import { 
   TrendingUp, Wallet, Target, Zap, 
   Activity, ShieldCheck, Trophy, ArrowRight,
-  ShieldAlert, Clock, CalendarDays, Database, Sparkles
+  ShieldAlert, Clock, CalendarDays, Database, Sparkles, Coins, Landmark
 } from "lucide-react"
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 import Link from 'next/link'
-import { useFirestore, useUser } from '@/firebase'
+import { useFirestore, useUser, useDoc, useMemoFirebase } from '@/firebase'
 import { doc, serverTimestamp } from 'firebase/firestore'
 import { setDocumentNonBlocking } from '@/firebase/non-blocking-updates'
 import { useToast } from '@/hooks/use-toast'
@@ -42,6 +42,32 @@ export default function DashboardPage() {
   const db = useFirestore()
   const { user } = useUser()
   const { toast } = useToast()
+
+  const profileRef = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return doc(db, 'users', user.uid)
+  }, [db, user])
+
+  const { data: profile } = useDoc<any>(profileRef)
+
+  // Initialize new user with $100,000 if profile doesn't exist or balance is missing
+  useEffect(() => {
+    if (user && db && !profile) {
+      const initialProfile = {
+        id: user.uid,
+        email: user.email,
+        username: user.email?.split('@')[0] || 'Strategist',
+        totalBalance: 100000,
+        vaultBalance: 100000,
+        tradingBalance: 0,
+        currency: 'USD',
+        timezone: 'UTC',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }
+      setDocumentNonBlocking(doc(db, 'users', user.uid), initialProfile, { merge: true })
+    }
+  }, [user, db, profile])
 
   const seedDemoData = () => {
     if (!db || !user) return;
@@ -77,6 +103,12 @@ export default function DashboardPage() {
     });
   }
 
+  const balances = {
+    total: profile?.totalBalance || 100000,
+    vault: profile?.vaultBalance || 100000,
+    trading: profile?.tradingBalance || 0
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-auto p-6 space-y-6">
       <div className="flex justify-between items-end">
@@ -93,6 +125,40 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Account Balances Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-primary/10 border-primary/20">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-xs font-bold uppercase text-primary">Total Balance</CardTitle>
+            <Coins className="w-4 h-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold font-mono">${balances.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Aggregated Asset Value</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-card">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-xs font-bold uppercase text-muted-foreground">Vault Balance (Idle)</CardTitle>
+            <Landmark className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold font-mono">${balances.vault.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Funds in Cold Storage</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-accent/5 border-accent/20">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-xs font-bold uppercase text-accent">Trading Balance</CardTitle>
+            <Zap className="w-4 h-4 text-accent" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold font-mono text-accent">${balances.trading.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Funds Available for Bots</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Institutional Prop Firm Progress Card */}
       <Card className="bg-primary/5 border-primary/20 overflow-hidden relative">
         <div className="absolute top-0 right-0 p-4">
@@ -104,7 +170,7 @@ export default function DashboardPage() {
                  <h2 className="text-lg font-bold flex items-center gap-2">
                    <ShieldCheck className="w-5 h-5 text-primary" /> Challenge: Phase 1
                  </h2>
-                 <p className="text-xs text-muted-foreground">Profit Target: 10% ($5,000)</p>
+                 <p className="text-xs text-muted-foreground">Profit Target: 10% ($10,000)</p>
                  <div className="flex gap-2 mt-2">
                     <Badge variant="outline" className="text-[9px] h-4">MIN 5 DAYS</Badge>
                     <Badge variant="outline" className="text-[9px] h-4">CONSISTENCY REQ.</Badge>
@@ -114,19 +180,19 @@ export default function DashboardPage() {
               <div className="lg:col-span-6 space-y-3">
                  <div className="flex justify-between text-xs font-bold uppercase">
                     <span className="flex items-center gap-1.5"><Target className="w-3 h-3 text-primary" /> Progress to Goal</span>
-                    <span className="text-primary">64.2%</span>
+                    <span className="text-primary">32.1%</span>
                  </div>
-                 <Progress value={64.2} className="h-2.5" />
+                 <Progress value={32.1} className="h-2.5" />
                  <div className="flex justify-between text-[10px] text-muted-foreground">
                     <span>Current: +$3,210.12</span>
-                    <span>Remaining: $1,789.88</span>
+                    <span>Remaining: $6,789.88</span>
                  </div>
               </div>
 
               <div className="lg:col-span-3 flex flex-col gap-2">
                 <div className="flex items-center justify-between text-xs px-3 py-2 rounded bg-background border border-border">
                    <div className="flex items-center gap-2 text-muted-foreground">
-                     <CalendarDays className="w-3 h-3" /> Trading Days
+                     <CalendarDays className="w-3" /> Trading Days
                    </div>
                    <span className="font-bold">3 / 5</span>
                 </div>
@@ -139,58 +205,6 @@ export default function DashboardPage() {
            </div>
         </CardContent>
       </Card>
-
-      {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase text-muted-foreground">Account Value</CardTitle>
-            <Wallet className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono">$53,210.12</div>
-            <p className="text-xs text-green-500 flex items-center gap-1 mt-1 font-bold">
-              <TrendingUp className="w-3 h-3" /> +$3,210.12 (6.42%)
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase text-muted-foreground">Daily Drawdown</CardTitle>
-            <ShieldAlert className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono">0.45%</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Limit: 5.0% ($2,500)
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase text-muted-foreground">Consistency</CardTitle>
-            <Activity className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono">92.4%</div>
-            <div className="w-full bg-muted rounded-full h-1 mt-3">
-              <div className="bg-primary h-1 rounded-full" style={{ width: '92.4%' }}></div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase text-muted-foreground">Overall Loss</CardTitle>
-            <Clock className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-mono">0.82%</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Max Limit: 10.0%
-            </p>
-          </CardContent>
-        </Card>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">

@@ -17,13 +17,13 @@ import {
   ArrowUpRight, ArrowDownRight,
   Terminal, Loader2, Calculator,
   Lock, TrendingUp, Clock, Server, Globe,
-  BarChart4, ArrowRightLeft
+  BarChart4, ArrowRightLeft, Coins, Landmark, ArrowRight
 } from "lucide-react"
 import { 
   AreaChart, Area, ResponsiveContainer, YAxis, XAxis, Tooltip, CartesianGrid
 } from 'recharts'
 import { useToast } from "@/hooks/use-toast"
-import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebase'
+import { useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from '@/firebase'
 import { collection, doc, serverTimestamp, query, where } from 'firebase/firestore'
 import { setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates'
 import { INITIAL_MARKET_DATA } from '../screener/page'
@@ -63,15 +63,13 @@ export default function LiveTradingPage() {
   
   const [isDeploying, setIsDeploying] = useState(false)
   const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [isTransferOpen, setIsTransferOpen] = useState(false)
+  const [transferAmount, setTransferAmount] = useState("5000")
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Terminal Initialized.",
     "[AWS] Connection to us-east-1 instance established.",
     "[AWS] Worker v2.4 initialized and awaiting instructions."
   ])
-  const [equity, setEquity] = useState(53210.12)
-  const [hwm, setHwm] = useState(53210.12) 
-  const [dailyStartingEquity] = useState(50000.00)
-  const [isAccountSuspended, setIsAccountSuspended] = useState(false)
   
   const [calcRiskPct, setCalcRiskPct] = useState("1")
   const [calcStopLoss, setCalcStopLoss] = useState("500")
@@ -88,9 +86,11 @@ export default function LiveTradingPage() {
 
   const logEndRef = useRef<HTMLDivElement>(null)
 
-  const DAILY_LOSS_LIMIT = 0.05 
-  const INITIAL_BALANCE = 50000.00
-  const PROFIT_TARGET_PHASE1 = 0.10 
+  const profileRef = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return doc(db, 'users', user.uid)
+  }, [db, user])
+  const { data: profile } = useDoc<any>(profileRef)
 
   const strategiesQuery = useMemoFirebase(() => {
     if (!db || !user) return null
@@ -116,7 +116,7 @@ export default function LiveTradingPage() {
   }, [logs])
 
   useEffect(() => {
-    if (!persistentPositions || persistentPositions.length === 0 || isAccountSuspended) return
+    if (!persistentPositions || persistentPositions.length === 0) return
 
     const interval = setInterval(() => {
       setLivePrices(prev => {
@@ -146,27 +146,43 @@ export default function LiveTradingPage() {
         })
         return next
       })
-
-      setEquity(prev => {
-        const pnlTick = (Math.random() - 0.48) * 15
-        const nextEquity = prev + pnlTick
-        if (nextEquity > hwm) setHwm(nextEquity)
-        
-        const dailyLoss = ((dailyStartingEquity - nextEquity) / dailyStartingEquity)
-        if (dailyLoss >= DAILY_LOSS_LIMIT) {
-          setIsAccountSuspended(true)
-          setLogs(prevLogs => [...prevLogs, `[CRITICAL] Compliance Engine: DAILY LOSS LIMIT BREACHED`, "[SYSTEM] Account Suspended. All positions liquidated."])
-        }
-        
-        return nextEquity
-      })
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [persistentPositions, isAccountSuspended, hwm, dailyStartingEquity])
+  }, [persistentPositions])
+
+  const handleTransfer = async () => {
+    if (!db || !user || !profile) return
+    const amount = parseFloat(transferAmount)
+    if (isNaN(amount) || amount <= 0 || amount > profile.vaultBalance) {
+      toast({ variant: "destructive", title: "Invalid Amount", description: "Insufficient vault balance." })
+      return
+    }
+
+    const updatedProfile = {
+      vaultBalance: profile.vaultBalance - amount,
+      tradingBalance: (profile.tradingBalance || 0) + amount,
+      updatedAt: serverTimestamp(),
+    }
+
+    try {
+      await setDocumentNonBlocking(doc(db, 'users', user.uid), updatedProfile, { merge: true })
+      setIsTransferOpen(false)
+      toast({ title: "Transfer Successful", description: `$${amount.toLocaleString()} moved to Trading account.` })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Transfer Failed" })
+    }
+  }
 
   const deployBot = async () => {
-    if (!config.strategyId || !user || !db) return
+    if (!config.strategyId || !user || !db || !profile) return
+    const investAmt = parseFloat(config.amount)
+    
+    if (investAmt > (profile.tradingBalance || 0)) {
+      toast({ variant: "destructive", title: "Deployment Blocked", description: "Insufficient trading balance. Transfer funds from vault first." })
+      return
+    }
+
     setIsConfigOpen(false)
     setIsDeploying(true)
     
@@ -188,7 +204,7 @@ export default function LiveTradingPage() {
       strategyName: strategy?.name || "Bot",
       side: 'LONG',
       entryPrice: startPrice,
-      quantity: parseFloat(config.amount) / startPrice,
+      quantity: investAmt / startPrice,
       status: 'open',
       entryTime: serverTimestamp(),
       userId: user.uid,
@@ -200,6 +216,12 @@ export default function LiveTradingPage() {
     }
 
     try {
+      // Deduct from trading balance
+      await setDocumentNonBlocking(doc(db, 'users', user.uid), {
+        tradingBalance: profile.tradingBalance - investAmt,
+        updatedAt: serverTimestamp()
+      }, { merge: true })
+
       await setDocumentNonBlocking(
         doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', positionId),
         positionData,
@@ -214,24 +236,35 @@ export default function LiveTradingPage() {
   }
 
   const closePosition = async (posId: string) => {
-    if (!user || !db) return
+    if (!user || !db || !profile) return
     try {
+      const pos = persistentPositions?.find(p => p.id === posId)
+      const sim = livePrices[posId]
+      
+      // Calculate return amount (Investment + Profit)
+      const investment = (pos?.quantity || 0) * (pos?.entryPrice || 0)
+      const returnAmt = investment + (sim?.profitUsd || 0)
+
+      // Add back to trading balance
+      await setDocumentNonBlocking(doc(db, 'users', user.uid), {
+        tradingBalance: profile.tradingBalance + returnAmt,
+        updatedAt: serverTimestamp()
+      }, { merge: true })
+
       await deleteDocumentNonBlocking(doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', posId))
       setLogs(prev => [...prev, `[AWS] Kill signal sent to worker for ${posId}.`, `[SUCCESS] Position closed.`])
-      toast({ title: "Position Closed", description: "Market order executed successfully by AWS worker." })
+      toast({ title: "Position Closed", description: "Market order executed successfully. Funds returned to Trading account." })
     } catch (e) {
       toast({ variant: "destructive", title: "Error closing position" })
     }
   }
 
   const calculateRisk = () => {
-    const riskAmt = INITIAL_BALANCE * (parseFloat(calcRiskPct) / 100)
+    const riskAmt = (profile?.tradingBalance || 0) * (parseFloat(calcRiskPct) / 100)
     const stopLossPips = parseFloat(calcStopLoss)
     const lotSize = riskAmt / stopLossPips
     setCalcResult({ size: lotSize.toFixed(2), margin: (lotSize * 1000).toLocaleString() })
   }
-
-  const progressToTarget = Math.max(0, Math.min(100, ((equity - INITIAL_BALANCE) / (INITIAL_BALANCE * PROFIT_TARGET_PHASE1)) * 100))
 
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 overflow-auto bg-[#080A0C]">
@@ -243,79 +276,93 @@ export default function LiveTradingPage() {
           <p className="text-muted-foreground">Monitoring your institutional AWS EC2 workers in real-time.</p>
         </div>
         <div className="flex gap-2">
-          {isAccountSuspended ? (
-             <Badge variant="destructive" className="h-10 px-4 flex gap-2 animate-pulse">
-               <Lock className="w-4 h-4" /> TRADING SUSPENDED
-             </Badge>
-          ) : (
-            <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2 bg-green-600 hover:bg-green-700">
-                  <Play className="w-4 h-4" /> Deploy to AWS Instance
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="bg-card border-border">
-                <DialogHeader>
-                  <DialogTitle>Deploy Compliant Strategy</DialogTitle>
-                  <DialogDescription>Your logic will be transmitted and executed on your secure AWS worker.</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">Strategy</Label>
-                    <div className="col-span-3">
-                      <Select value={config.strategyId} onValueChange={(v) => setConfig({...config, strategyId: v})}>
-                        <SelectTrigger><SelectValue placeholder="Select Strategy" /></SelectTrigger>
-                        <SelectContent>
-                          {savedStrategies?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
+          <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Landmark className="w-4 h-4" /> Transfer to Trading
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="bg-card border-border">
+              <DialogHeader>
+                <DialogTitle>Allocate Trading Capital</DialogTitle>
+                <DialogDescription>Move funds from your Vault into the active Trading balance.</DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <div className="flex justify-between text-xs font-medium">
+                  <span className="text-muted-foreground">Vault Balance:</span>
+                  <span className="text-white">${profile?.vaultBalance?.toLocaleString() || '0.00'}</span>
+                </div>
+                <div className="space-y-2">
+                  <Label>Amount to Transfer</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+                    <Input value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} className="pl-7" type="number" />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">Symbol</Label>
-                    <Input value={config.symbol} onChange={(e) => setConfig({...config, symbol: e.target.value})} className="col-span-3" />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">Timeframe</Label>
-                    <Select value={config.timeframe} onValueChange={(v) => setConfig({...config, timeframe: v})}>
-                        <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1m">1 minute</SelectItem>
-                          <SelectItem value="5m">5 minutes</SelectItem>
-                          <SelectItem value="15m">15 minutes</SelectItem>
-                          <SelectItem value="1h">1 hour</SelectItem>
-                          <SelectItem value="4h">4 hours</SelectItem>
-                          <SelectItem value="1D">1 Day</SelectItem>
-                        </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">Investment</Label>
-                    <div className="col-span-3 relative">
-                       <span className="absolute left-3 top-2.5 text-muted-foreground text-xs">$</span>
-                       <Input value={config.amount} onChange={(e) => setConfig({...config, amount: e.target.value})} className="pl-6" type="number" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">Worker</Label>
-                    <Select value={config.worker} onValueChange={(v) => setConfig({...config, worker: v})}>
-                        <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ec2-01">AWS EC2 (us-east-1) - Online</SelectItem>
-                          <SelectItem value="ec2-02" disabled>AWS EC2 (eu-west-1) - Offline</SelectItem>
-                        </SelectContent>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={handleTransfer} className="w-full bg-primary">Confirm Transfer</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 bg-green-600 hover:bg-green-700">
+                <Play className="w-4 h-4" /> Deploy to AWS Instance
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="bg-card border-border">
+              <DialogHeader>
+                <DialogTitle>Deploy Compliant Strategy</DialogTitle>
+                <DialogDescription>Logic executes on secure AWS worker. Investment deducted from Trading Balance.</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="flex justify-between text-xs px-2 py-1 rounded bg-accent/10 border border-accent/20">
+                  <span className="text-accent font-bold">Trading Balance Available:</span>
+                  <span className="text-white font-mono">${profile?.tradingBalance?.toLocaleString() || '0.00'}</span>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">Strategy</Label>
+                  <div className="col-span-3">
+                    <Select value={config.strategyId} onValueChange={(v) => setConfig({...config, strategyId: v})}>
+                      <SelectTrigger><SelectValue placeholder="Select Strategy" /></SelectTrigger>
+                      <SelectContent>
+                        {savedStrategies?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
                     </Select>
                   </div>
                 </div>
-                <DialogFooter>
-                   <Button onClick={deployBot} className="w-full bg-primary" disabled={!config.strategyId || isDeploying}>
-                     {isDeploying ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                     Start Remote Execution
-                   </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">Symbol</Label>
+                  <Input value={config.symbol} onChange={(e) => setConfig({...config, symbol: e.target.value})} className="col-span-3" />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">Investment</Label>
+                  <div className="col-span-3 relative">
+                     <span className="absolute left-3 top-2.5 text-muted-foreground text-xs">$</span>
+                     <Input value={config.amount} onChange={(e) => setConfig({...config, amount: e.target.value})} className="pl-6" type="number" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">Worker</Label>
+                  <Select value={config.worker} onValueChange={(v) => setConfig({...config, worker: v})}>
+                      <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ec2-01">AWS EC2 (us-east-1) - Online</SelectItem>
+                        <SelectItem value="ec2-02" disabled>AWS EC2 (eu-west-1) - Offline</SelectItem>
+                      </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                 <Button onClick={deployBot} className="w-full bg-primary" disabled={!config.strategyId || isDeploying}>
+                   {isDeploying ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                   Start Remote Execution
+                 </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -324,27 +371,21 @@ export default function LiveTradingPage() {
           <Card className="bg-card/40 border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2">
-                <Server className="w-4 h-4" /> Infrastructure
+                <Landmark className="w-4 h-4" /> Balances
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-               <div className="flex items-center justify-between">
-                 <div className="flex items-center gap-2 text-xs">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    AWS Instance ec2-01
-                 </div>
-                 <Badge variant="outline" className="text-[9px]">Online</Badge>
+               <div className="space-y-1">
+                  <div className="text-[10px] text-muted-foreground uppercase font-bold">Vault (Total)</div>
+                  <div className="text-lg font-bold font-mono">${profile?.vaultBalance?.toLocaleString() || '0.00'}</div>
                </div>
-               <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 rounded bg-black/40 border border-white/5 text-center">
-                    <div className="text-[8px] text-muted-foreground uppercase">CPU</div>
-                    <div className="text-xs font-bold">12.4%</div>
-                  </div>
-                  <div className="p-2 rounded bg-black/40 border border-white/5 text-center">
-                    <div className="text-[8px] text-muted-foreground uppercase">Latency</div>
-                    <div className="text-xs font-bold">4.2ms</div>
-                  </div>
+               <div className="space-y-1">
+                  <div className="text-[10px] text-accent uppercase font-bold">Trading Account</div>
+                  <div className="text-xl font-bold font-mono text-accent">${profile?.tradingBalance?.toLocaleString() || '0.00'}</div>
                </div>
+               <Button variant="outline" size="sm" className="w-full text-[10px] h-7 gap-2" onClick={() => setIsTransferOpen(true)}>
+                 <ArrowRightLeft className="w-3 h-3" /> Move Funds
+               </Button>
             </CardContent>
           </Card>
 
@@ -356,13 +397,13 @@ export default function LiveTradingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="text-2xl font-bold font-mono">${equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              <div className="text-2xl font-bold font-mono">${(profile?.totalBalance || 100000).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
               <div className="space-y-1.5">
                 <div className="flex justify-between text-[10px] uppercase font-bold">
-                  <span>Phase 1 Goal: $55,000</span>
-                  <span className="text-primary">{progressToTarget.toFixed(1)}%</span>
+                  <span>Phase 1 Goal: $110,000</span>
+                  <span className="text-primary">32.1%</span>
                 </div>
-                <Progress value={progressToTarget} className="h-1.5" />
+                <Progress value={32.1} className="h-1.5" />
               </div>
             </CardContent>
           </Card>
@@ -481,7 +522,6 @@ export default function LiveTradingPage() {
                              </Button>
                           </div>
 
-                          {/* Bot Visualization Engine - Professional Chart Layout */}
                           <div className="w-full space-y-2">
                              <div className="flex justify-between items-center px-1">
                                <span className="text-[9px] text-muted-foreground uppercase font-bold flex items-center gap-1">
@@ -507,7 +547,6 @@ export default function LiveTradingPage() {
                                       axisLine={false} 
                                       tickLine={false} 
                                       tick={{ fontSize: 9, fill: '#666' }} 
-                                      label={{ value: `Periods (${pos.timeframe || '1h'})`, position: 'insideBottomRight', offset: -5, fontSize: 8, fill: '#444' }}
                                     />
                                     <YAxis 
                                       domain={['auto', 'auto']} 
@@ -519,7 +558,6 @@ export default function LiveTradingPage() {
                                     <Tooltip 
                                       contentStyle={{ backgroundColor: '#0D0F11', border: '1px solid #2e2e2e', borderRadius: '8px', fontSize: '10px' }}
                                       itemStyle={{ color: sim.pnl >= 0 ? '#38D94F' : '#F03C3C' }}
-                                      labelStyle={{ color: '#888', marginBottom: '4px' }}
                                       formatter={(value: number) => [`$${value.toLocaleString(undefined, {minimumFractionDigits: 2})}`, 'Price']}
                                     />
                                     <Area 

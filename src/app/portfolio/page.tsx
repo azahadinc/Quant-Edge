@@ -8,21 +8,26 @@ import { Progress } from "@/components/ui/progress"
 import { 
   BarChart3, PieChart, Wallet, ArrowUpCircle, 
   ArrowDownCircle, History, Activity, TrendingUp, 
-  ShieldCheck, Loader2, Coins
+  ShieldCheck, Loader2, Coins, Landmark, Zap
 } from "lucide-react"
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, Pie, PieChart as ReChartsPie
 } from 'recharts'
-import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebase'
-import { collection, query, where, orderBy, limit } from 'firebase/firestore'
+import { useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from '@/firebase'
+import { collection, query, where, orderBy, limit, doc } from 'firebase/firestore'
 
 export default function PortfolioPage() {
   const db = useFirestore()
   const { user } = useUser()
   
-  const INITIAL_BALANCE = 50000.00
-  const [equity, setEquity] = useState(INITIAL_BALANCE)
+  const profileRef = useMemoFirebase(() => {
+    if (!db || !user) return null
+    return doc(db, 'users', user.uid)
+  }, [db, user])
+  const { data: profile } = useDoc<any>(profileRef)
+
+  const INITIAL_TOTAL = profile?.totalBalance || 100000
   const [unrealizedPnl, setUnrealizedPnl] = useState(0)
 
   // 1. Fetch Active Positions from Live Trading
@@ -52,11 +57,10 @@ export default function PortfolioPage() {
   const [performanceData, setPerformanceData] = useState<{time: string, value: number}[]>([])
 
   useEffect(() => {
-    // Generate some seed data if empty
     if (performanceData.length === 0) {
       const seed = Array.from({ length: 20 }, (_, i) => ({
         time: `${10 + i}:00`,
-        value: INITIAL_BALANCE + (Math.random() - 0.3) * 500
+        value: INITIAL_TOTAL + (Math.random() - 0.3) * 500
       }))
       setPerformanceData(seed)
     }
@@ -64,59 +68,44 @@ export default function PortfolioPage() {
     const interval = setInterval(() => {
       if (!positions || positions.length === 0) {
         setUnrealizedPnl(0)
-        setEquity(INITIAL_BALANCE)
         return
       }
 
-      // Aggregate PnL from all positions
       let totalPnl = 0
       positions.forEach(pos => {
-        // Simulate a slight price drift
         const drift = (Math.random() - 0.49) * 10
         totalPnl += (pos.side === 'LONG' ? drift : -drift)
       })
 
       setUnrealizedPnl(prev => prev + totalPnl)
-      setEquity(INITIAL_BALANCE + unrealizedPnl)
       
       setPerformanceData(prev => [
         ...prev.slice(-19), 
-        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), value: INITIAL_BALANCE + unrealizedPnl }
+        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), value: INITIAL_TOTAL + unrealizedPnl }
       ])
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [positions, unrealizedPnl, performanceData.length])
+  }, [positions, unrealizedPnl, INITIAL_TOTAL, performanceData.length])
 
   // 4. Calculate Allocation
   const allocationData = useMemo(() => {
-    if (!positions || positions.length === 0) return [{ name: 'Cash', value: 100, amount: INITIAL_BALANCE, color: '#3b82f6' }]
-    
-    const groups: Record<string, number> = {}
-    let totalInvested = 0
+    const data = [
+      { name: 'Vault (Idle)', value: profile?.vaultBalance || 0, color: '#212121' },
+      { name: 'Trading Balance', value: profile?.tradingBalance || 0, color: '#3b82f6' }
+    ]
 
-    positions.forEach(pos => {
-      const val = (pos.quantity || 1) * (pos.entryPrice || 0)
-      groups[pos.instrumentId] = (groups[pos.instrumentId] || 0) + val
-      totalInvested += val
-    })
-
-    const cash = Math.max(0, INITIAL_BALANCE - totalInvested)
-    const result = Object.entries(groups).map(([name, value]) => ({
-      name,
-      value: (value / INITIAL_BALANCE) * 100,
-      amount: value,
-      color: '#2563eb'
-    }))
-
-    if (cash > 0) {
-      result.push({ name: 'Cash (USDT)', value: (cash / INITIAL_BALANCE) * 100, amount: cash, color: '#10b981' })
+    if (positions && positions.length > 0) {
+      positions.forEach(pos => {
+        const val = (pos.quantity || 1) * (pos.entryPrice || 0)
+        data.push({ name: `In Trade: ${pos.instrumentId}`, value: val, color: '#10b981' })
+      })
     }
 
-    return result
-  }, [positions])
+    return data
+  }, [profile, positions])
 
-  const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#10b981', '#f59e0b']
+  const COLORS = ['#212121', '#3b82f6', '#10b981', '#f59e0b', '#60a5fa', '#93c5fd']
 
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 overflow-auto bg-background">
@@ -124,7 +113,7 @@ export default function PortfolioPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight font-headline">Portfolio Analysis</h1>
           <p className="text-muted-foreground flex items-center gap-2">
-            Real-time equity and risk exposure monitoring. 
+            Real-time multi-tier account monitoring.
             <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-500 border-none">CONNECTED TO AWS_WORKERS</Badge>
           </p>
         </div>
@@ -132,10 +121,10 @@ export default function PortfolioPage() {
 
       {/* Top Level Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="bg-primary/5 border-primary/20">
           <CardContent className="pt-6">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Total Equity</div>
-            <div className="text-2xl font-bold font-mono">${equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-[10px] font-bold uppercase text-primary mb-1">Total Balance</div>
+            <div className="text-2xl font-bold font-mono">${(profile?.totalBalance || 100000).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
             <div className={`text-xs mt-1 font-bold flex items-center gap-1 ${unrealizedPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                <TrendingUp className="w-3 h-3" /> {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)}
             </div>
@@ -143,24 +132,28 @@ export default function PortfolioPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Active Positions</div>
-            <div className="text-2xl font-bold font-mono">{positions?.length || 0}</div>
-            <div className="text-xs text-muted-foreground mt-1">Across {new Set(positions?.map(p => p.instrumentId)).size} assets</div>
+            <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Vault (Bal.)</div>
+            <div className="text-2xl font-bold font-mono text-muted-foreground">${(profile?.vaultBalance || 0).toLocaleString()}</div>
+            <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              <Landmark className="w-3 h-3" /> Cold Storage
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-accent/5 border-accent/20">
+          <CardContent className="pt-6">
+            <div className="text-[10px] font-bold uppercase text-accent mb-1">Trading Balance</div>
+            <div className="text-2xl font-bold font-mono text-accent">${(profile?.tradingBalance || 0).toLocaleString()}</div>
+            <div className="text-xs text-accent mt-1 flex items-center gap-1">
+              <Zap className="w-3 h-3" /> Ready for Execution
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Buying Power</div>
-            <div className="text-2xl font-bold font-mono">${Math.max(0, INITIAL_BALANCE - (positions?.length || 0) * 5000).toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground mt-1">Margin available: 100%</div>
-          </CardContent>
-        </Card>
-        <Card className="bg-primary/5 border-primary/20">
-          <CardContent className="pt-6">
-            <div className="text-[10px] font-bold uppercase text-primary mb-1">Portfolio Health</div>
-            <div className="text-2xl font-bold font-mono text-primary">EXCELLENT</div>
+            <div className="text-[10px] font-bold uppercase text-muted-foreground mb-1">Active Positions</div>
+            <div className="text-2xl font-bold font-mono">{positions?.length || 0}</div>
             <div className="flex items-center gap-2 mt-1">
-              <ShieldCheck className="w-3 h-3 text-primary" />
+              <ShieldCheck className="w-3 h-3 text-green-500" />
               <span className="text-[10px] text-muted-foreground">Compliance: Verified</span>
             </div>
           </CardContent>
@@ -203,7 +196,7 @@ export default function PortfolioPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg font-headline">
-              <PieChart className="w-5 h-5 text-primary" /> Asset Allocation
+              <PieChart className="w-5 h-5 text-primary" /> Capital Allocation
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -236,12 +229,9 @@ export default function PortfolioPage() {
                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                        <span className="font-bold">{asset.name}</span>
                     </div>
-                    <span className="text-muted-foreground">{asset.value.toFixed(1)}%</span>
+                    <span className="text-muted-foreground font-mono">${asset.value.toLocaleString()}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Progress value={asset.value} className="h-1 flex-1" />
-                    <span className="text-[10px] font-mono text-muted-foreground">${asset.amount.toLocaleString()}</span>
-                  </div>
+                  <Progress value={(asset.value / INITIAL_TOTAL) * 100} className="h-1" />
                 </div>
               ))}
               
@@ -255,7 +245,7 @@ export default function PortfolioPage() {
         </Card>
       </div>
 
-      {/* Recent History / Activity */}
+      {/* Recent Activity */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2 font-headline">

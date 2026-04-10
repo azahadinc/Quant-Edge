@@ -1,10 +1,11 @@
+
 {
   "entities": {
     "UserProfile": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "UserProfile",
       "type": "object",
-      "description": "Represents a user's profile information within the QuantEdge application.",
+      "description": "Represents a user's profile and multi-tier financial balances within the QuantEdge application.",
       "properties": {
         "id": {
           "type": "string",
@@ -18,6 +19,35 @@
         "username": {
           "type": "string",
           "description": "The user's chosen username."
+        },
+        "fullName": {
+          "type": "string",
+          "description": "The user's full name."
+        },
+        "totalBalance": {
+          "type": "number",
+          "description": "The combined value of all user funds.",
+          "default": 100000
+        },
+        "vaultBalance": {
+          "type": "number",
+          "description": "Idle funds held in the main vault.",
+          "default": 100000
+        },
+        "tradingBalance": {
+          "type": "number",
+          "description": "Funds specifically allocated for active trading operations.",
+          "default": 0
+        },
+        "currency": {
+          "type": "string",
+          "description": "Preferred base currency (e.g., 'USD').",
+          "default": "USD"
+        },
+        "timezone": {
+          "type": "string",
+          "description": "User's local timezone.",
+          "default": "UTC"
         },
         "createdAt": {
           "type": "string",
@@ -33,7 +63,6 @@
       "required": [
         "id",
         "email",
-        "username",
         "createdAt"
       ]
     },

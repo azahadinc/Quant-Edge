@@ -15,7 +15,7 @@ import {
   User, Shield, Bell, LogOut, Key, 
   Save, AlertTriangle, Trophy,
   ShieldCheck, Landmark, Calculator,
-  Mail, Globe, Clock, CreditCard, Loader2
+  Mail, Globe, Clock, CreditCard, Loader2, Coins, Zap
 } from "lucide-react"
 import { useAuth, useUser, useFirestore, useDoc, useMemoFirebase } from "@/firebase"
 import { signOut } from "firebase/auth"
@@ -62,11 +62,11 @@ export default function SettingsPage() {
     }
   }, [profileData, user])
 
-  // Prop Firm & API State (Local for now, could be persisted)
+  // Prop Firm & API State
   const [alpacaKey, setAlpacaKey] = useState("PKP5PYAIFV6P3TFZ56D5S5F5RD")
   const [alpacaSecret, setAlpacaSecret] = useState("25yLTf393nHQwBEwJEatF4dMLktwRZbqr8QnuhvNHesR")
   const [propFirmMode, setPropFirmMode] = useState(true)
-  const [accountSize, setAccountSize] = useState("50000")
+  const [accountSize, setAccountSize] = useState("100000")
   const [challengePhase, setChallengePhase] = useState("phase1")
 
   const handleLogout = async () => {
@@ -127,7 +127,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Identity */}
+        {/* Left Column: Identity & Balances */}
         <div className="lg:col-span-1 space-y-6">
           <Card className="overflow-hidden border-primary/10">
             <CardHeader className="bg-primary/5 pb-8">
@@ -153,9 +153,20 @@ export default function SettingsPage() {
                   <span className="text-muted-foreground flex items-center gap-2"><Mail className="w-3.5 h-3.5" /> Email</span>
                   <span className="font-medium">{user?.email}</span>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5" /> Identity</span>
-                  <Badge variant="outline" className="text-green-500 border-green-500/20 bg-green-500/5 h-5 text-[9px]">VERIFIED</Badge>
+                <Separator />
+                <div className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground">
+                    <span className="flex items-center gap-1"><Coins className="w-3 h-3" /> Vault Balance (Bal.)</span>
+                    <span className="text-white">${profileData?.vaultBalance?.toLocaleString() || '100,000'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground">
+                    <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-accent" /> Trading Balance</span>
+                    <span className="text-accent">${profileData?.tradingBalance?.toLocaleString() || '0'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase text-primary pt-1 border-t border-white/5">
+                    <span>Total Net Worth</span>
+                    <span>${profileData?.totalBalance?.toLocaleString() || '100,000'}</span>
+                  </div>
                 </div>
               </div>
               <Separator />
