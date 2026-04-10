@@ -13,10 +13,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { 
   History, Coins, TrendingUp, 
   FileText, PlayCircle, Loader2,
-  CheckCircle2, XCircle, ArrowUpRight, ArrowDownRight
+  CheckCircle2, XCircle, ArrowUpRight, ArrowDownRight, Sparkles, Plus
 } from "lucide-react"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebase'
-import { collection, query, orderBy } from 'firebase/firestore'
+import { collection, query, orderBy, doc, serverTimestamp } from 'firebase/firestore'
+import { setDocumentNonBlocking } from '@/firebase/non-blocking-updates'
+import { useToast } from '@/hooks/use-toast'
+import Link from 'next/link'
 
 interface Trade {
   id: string;
@@ -30,6 +33,7 @@ interface Trade {
 export default function BacktestPage() {
   const db = useFirestore()
   const { user } = useUser()
+  const { toast } = useToast()
   const [isRunning, setIsRunning] = useState(false)
   const [progress, setProgress] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
@@ -54,13 +58,40 @@ export default function BacktestPage() {
     )
   }, [db, user])
 
-  const { data: savedStrategies } = useCollection<any>(strategiesQuery)
+  const { data: savedStrategies, isLoading: isLoadingStrategies } = useCollection<any>(strategiesQuery)
 
   useEffect(() => {
     if (logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [logs])
+
+  const seedDemoData = () => {
+    if (!db || !user) return;
+    const strategyId = "golden-cross-demo";
+    const strategyData = {
+      id: strategyId,
+      name: "GoldenCross (EMA 8/21)",
+      code: `class GoldenCross(Strategy):
+    def should_long(self):
+        short_ema = ta.ema(self.candles, 8)
+        long_ema = ta.ema(self.candles, 21)
+        return short_ema > long_ema
+
+    def go_long(self):
+        entry_price = self.price - 10
+        qty = utils.size_to_qty(self.balance*0.05, entry_price)
+        self.buy = qty, entry_price
+        self.take_profit = qty, entry_price*1.2
+        self.stop_loss = qty, entry_price*0.9`,
+      language: 'python',
+      userId: user.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    setDocumentNonBlocking(doc(db, 'users', user.uid, 'strategies', strategyId), strategyData, { merge: true });
+    toast({ title: "Strategy Seeded", description: "GoldenCross is now available for backtesting." });
+  }
 
   const runSimulation = () => {
     if (!selectedStrategy) return
@@ -136,15 +167,24 @@ export default function BacktestPage() {
               <Label>Select Strategy</Label>
               <Select value={selectedStrategy} onValueChange={setSelectedStrategy}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a strategy" />
+                  <SelectValue placeholder={isLoadingStrategies ? "Loading..." : "Select a strategy"} />
                 </SelectTrigger>
                 <SelectContent>
                   {savedStrategies?.map(strat => (
                     <SelectItem key={strat.id} value={strat.id}>{strat.name}</SelectItem>
                   ))}
-                  {(!savedStrategies || savedStrategies.length === 0) && <SelectItem value="none" disabled>No saved strategies</SelectItem>}
+                  {(!savedStrategies || savedStrategies.length === 0) && !isLoadingStrategies && (
+                    <SelectItem value="none" disabled>No saved strategies</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              {(!savedStrategies || savedStrategies.length === 0) && !isLoadingStrategies && (
+                <div className="pt-2">
+                  <Button variant="outline" size="sm" className="w-full text-[10px] gap-2 border-dashed" onClick={seedDemoData}>
+                    <Sparkles className="w-3 h-3 text-accent" /> Seed GoldenCross Template
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -280,10 +320,23 @@ export default function BacktestPage() {
           )}
 
           {!isRunning && !results && (
-            <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center opacity-40">
-              <TrendingUp className="w-16 h-16 mb-4 text-muted-foreground" />
-              <h3 className="text-xl font-headline font-medium">Ready to Test</h3>
-              <p className="max-w-xs mt-2 text-sm">Configure your strategy parameters and date range on the left to begin simulation.</p>
+            <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center">
+              <div className="opacity-40 flex flex-col items-center">
+                <TrendingUp className="w-16 h-16 mb-4 text-muted-foreground" />
+                <h3 className="text-xl font-headline font-medium">Ready to Test</h3>
+                <p className="max-w-xs mt-2 text-sm">Configure your strategy parameters and date range on the left to begin simulation.</p>
+              </div>
+              {(!savedStrategies || savedStrategies.length === 0) && !isLoadingStrategies && (
+                <div className="mt-8 p-6 border rounded-xl bg-card/50 space-y-4 max-w-sm">
+                   <p className="text-xs text-muted-foreground">You don't have any saved strategies yet. Seed the Institutional template to start testing now.</p>
+                   <Button onClick={seedDemoData} className="w-full gap-2">
+                     <Sparkles className="w-4 h-4 text-accent" /> Seed GoldenCross
+                   </Button>
+                   <Link href="/editor" className="block text-[10px] text-primary hover:underline">
+                     Or go to Strategy Editor <ArrowRight className="inline w-2 h-2" />
+                   </Link>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -291,3 +344,5 @@ export default function BacktestPage() {
     </div>
   )
 }
+
+import { ArrowRight } from 'lucide-react'

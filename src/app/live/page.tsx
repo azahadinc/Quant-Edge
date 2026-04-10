@@ -19,12 +19,14 @@ import {
   ArrowUpRight, ArrowDownRight, RefreshCw,
   Terminal, StopCircle, AlertTriangle,
   Loader2, Trophy, ShieldAlert,
-  Lock, Calculator, Info
+  Lock, Calculator, Info, Sparkles, ArrowRight
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebase'
-import { collection, query, orderBy } from 'firebase/firestore'
+import { collection, query, orderBy, doc, serverTimestamp } from 'firebase/firestore'
+import { setDocumentNonBlocking } from '@/firebase/non-blocking-updates'
 import { INITIAL_MARKET_DATA } from '../screener/page'
+import Link from 'next/link'
 
 interface LiveTrade {
   id: string;
@@ -83,7 +85,7 @@ export default function LiveTradingPage() {
     )
   }, [db, user])
 
-  const { data: savedStrategies } = useCollection<any>(strategiesQuery)
+  const { data: savedStrategies, isLoading: isLoadingStrategies } = useCollection<any>(strategiesQuery)
 
   useEffect(() => {
     if (logEndRef.current) {
@@ -155,6 +157,33 @@ export default function LiveTradingPage() {
       title: "Hard Stop Triggered",
       description: reason
     });
+  }
+
+  const seedDemoData = () => {
+    if (!db || !user) return;
+    const strategyId = "golden-cross-demo";
+    const strategyData = {
+      id: strategyId,
+      name: "GoldenCross (EMA 8/21)",
+      code: `class GoldenCross(Strategy):
+    def should_long(self):
+        short_ema = ta.ema(self.candles, 8)
+        long_ema = ta.ema(self.candles, 21)
+        return short_ema > long_ema
+
+    def go_long(self):
+        entry_price = self.price - 10
+        qty = utils.size_to_qty(self.balance*0.05, entry_price)
+        self.buy = qty, entry_price
+        self.take_profit = qty, entry_price*1.2
+        self.stop_loss = qty, entry_price*0.9`,
+      language: 'python',
+      userId: user.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    setDocumentNonBlocking(doc(db, 'users', user.uid, 'strategies', strategyId), strategyData, { merge: true });
+    toast({ title: "Strategy Seeded", description: "GoldenCross is now available for deployment." });
   }
 
   const deployBot = () => {
@@ -229,12 +258,19 @@ export default function LiveTradingPage() {
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">Strategy</Label>
-                    <Select value={config.strategy} onValueChange={(v) => setConfig({...config, strategy: v})}>
-                      <SelectTrigger className="col-span-3"><SelectValue placeholder="Select" /></SelectTrigger>
-                      <SelectContent>
-                        {savedStrategies?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <div className="col-span-3 space-y-2">
+                      <Select value={config.strategy} onValueChange={(v) => setConfig({...config, strategy: v})}>
+                        <SelectTrigger><SelectValue placeholder={isLoadingStrategies ? "Loading..." : "Select Strategy"} /></SelectTrigger>
+                        <SelectContent>
+                          {savedStrategies?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {(!savedStrategies || savedStrategies.length === 0) && !isLoadingStrategies && (
+                        <Button variant="outline" size="sm" className="w-full text-[10px] gap-2 border-dashed h-7" onClick={seedDemoData}>
+                          <Sparkles className="w-3 h-3 text-accent" /> Seed GoldenCross Template
+                        </Button>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">Symbol</Label>
@@ -245,10 +281,13 @@ export default function LiveTradingPage() {
                     <Input value={config.amount} onChange={(e) => setConfig({...config, amount: e.target.value})} className="col-span-3" type="number" />
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="flex flex-col gap-2">
                    <Button onClick={deployBot} className="w-full bg-primary" disabled={!config.strategy}>
                      Launch Session
                    </Button>
+                   <Link href="/editor" className="text-center text-[10px] text-primary hover:underline">
+                     Go to Strategy Editor <ArrowRight className="inline w-2 h-2" />
+                   </Link>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

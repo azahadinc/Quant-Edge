@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { 
   TrendingUp, Wallet, Target, Zap, 
   Activity, ShieldCheck, Trophy, ArrowRight,
-  ShieldAlert, Clock, CalendarDays, Database
+  ShieldAlert, Clock, CalendarDays, Database, Sparkles
 } from "lucide-react"
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -49,7 +49,7 @@ export default function DashboardPage() {
     const strategyId = "golden-cross-demo";
     const strategyData = {
       id: strategyId,
-      name: "GoldenCross",
+      name: "GoldenCross (EMA 8/21)",
       code: `class GoldenCross(Strategy):
     def should_long(self):
         # go long when the EMA 8 is above the EMA 21
@@ -85,8 +85,8 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">Institutional Trading Mode. Compliance: <span className="text-green-500 font-bold uppercase text-xs">Verified</span></p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={seedDemoData} className="gap-2 border-primary/20 hover:bg-primary/10">
-            <Database className="w-4 h-4" /> Seed Test Strategy
+          <Button variant="outline" size="sm" onClick={seedDemoData} className="gap-2 border-primary/40 bg-primary/5 hover:bg-primary/20 text-primary-foreground font-bold">
+            <Sparkles className="w-4 h-4 text-accent" /> Seed Institutional Strategy
           </Button>
           <Badge variant="outline" className="px-3 py-1 bg-primary/10 border-primary/20 text-primary">PROP FIRM ACTIVE</Badge>
           <Badge variant="secondary" className="px-3 py-1">Phase 1 Evaluation</Badge>
