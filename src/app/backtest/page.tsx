@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -17,7 +16,7 @@ import {
 } from "lucide-react"
 import { useFirestore, useUser, useCollection, useMemoFirebase } from '@/firebase'
 import { collection, query, doc, serverTimestamp } from 'firebase/firestore'
-import { setDocumentNonBlocking } from '@/firebase/non-blocking-updates'
+import { setDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase/non-blocking-updates'
 import { useToast } from '@/hooks/use-toast'
 import Link from 'next/link'
 
@@ -48,7 +47,7 @@ export default function BacktestPage() {
   const [selectedStrategy, setSelectedStrategy] = useState<string>("")
   const logEndRef = useRef<HTMLDivElement>(null)
 
-  // Fetch user strategies - Removed sorting to ensure all documents appear without index requirements
+  // Fetch user strategies
   const strategiesQuery = useMemoFirebase(() => {
     if (!db || !user) return null
     return collection(db, 'users', user.uid, 'strategies')
@@ -128,18 +127,36 @@ export default function BacktestPage() {
   }
 
   const finalizeResults = () => {
-    setResults({
+    const simulationResults = {
       return: "+42.15%",
       drawdown: "-8.4%",
       profitFactor: "2.14",
       winRate: "68.5%"
-    })
+    }
+    setResults(simulationResults)
     setTrades([
       { id: '1', type: 'LONG', entry: '$42,100', exit: '$45,200', profit: 7.3, status: 'PROFIT' },
       { id: '2', type: 'SHORT', entry: '$48,000', exit: '$48,500', profit: -1.0, status: 'LOSS' },
       { id: '3', type: 'LONG', entry: '$51,200', exit: '$58,400', profit: 14.0, status: 'PROFIT' },
       { id: '4', type: 'LONG', entry: '$60,100', exit: '$59,200', profit: -1.5, status: 'LOSS' },
     ])
+
+    // Archive Backtest Results to History
+    if (db && user && selectedStrategy) {
+      const stratObj = savedStrategies?.find(s => s.id === selectedStrategy)
+      const backtestId = doc(collection(db, 'temp')).id
+      const backtestData = {
+        id: backtestId,
+        userId: user.uid,
+        strategyId: stratObj?.name || selectedStrategy,
+        instrumentIds: ["BTC/USDT"],
+        status: 'completed',
+        createdAt: serverTimestamp(),
+        timeframe: '1h',
+        metrics: JSON.stringify(simulationResults)
+      }
+      addDocumentNonBlocking(collection(db, 'users', user.uid, 'backtests'), backtestData)
+    }
   }
 
   return (
@@ -273,8 +290,11 @@ export default function BacktestPage() {
                <Card>
                  <CardHeader className="flex flex-row items-center justify-between">
                    <CardTitle className="flex items-center gap-2 text-lg font-headline">
-                     <FileText className="w-5 h-5 text-primary" /> Trade History
+                     <FileText className="w-5 h-5 text-primary" /> Current Session Results
                    </CardTitle>
+                   <Link href="/history">
+                     <Button variant="outline" size="sm" className="gap-2">View Audit Log <ArrowRight className="w-3 h-3" /></Button>
+                   </Link>
                  </CardHeader>
                  <CardContent className="p-0">
                    <Table>

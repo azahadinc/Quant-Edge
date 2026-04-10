@@ -39,7 +39,7 @@ export default function LandingPage() {
                   Automate Your Alpha with <span className="text-primary">QuantEdge</span>
                 </h1>
                 <p className="max-w-[600px] text-muted-foreground md:text-xl leading-relaxed">
-                  The ultimate Jesse-powered algorithmic trading platform. Design, backtest, and deploy high-frequency strategies with AI assistance.
+                  The ultimate QuantEdge-powered algorithmic trading platform. Design, backtest, and deploy high-frequency strategies with AI assistance.
                 </p>
               </div>
               <div className="flex flex-col gap-2 min-[400px]:flex-row">

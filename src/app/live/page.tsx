@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -25,7 +24,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from '@/firebase'
 import { collection, doc, serverTimestamp, query, where } from 'firebase/firestore'
-import { setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase/non-blocking-updates'
+import { setDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase/non-blocking-updates'
 import { INITIAL_MARKET_DATA } from '../screener/page'
 
 function RuntimeDisplay({ entryTime }: { entryTime: any }) {
@@ -239,21 +238,44 @@ export default function LiveTradingPage() {
     if (!user || !db || !profile) return
     try {
       const pos = persistentPositions?.find(p => p.id === posId)
-      const sim = livePrices[posId]
+      if (!pos) return
+
+      const sim = livePrices[posId] || { price: pos.entryPrice, pnl: 0, profitUsd: 0, tradeCount: 1 }
       
       // Calculate return amount (Investment + Profit)
       const investment = (pos?.quantity || 0) * (pos?.entryPrice || 0)
       const returnAmt = investment + (sim?.profitUsd || 0)
 
-      // Add back to trading balance
+      // 1. Create a permanent Trade Record for History
+      const tradeData = {
+        id: doc(collection(db, 'temp')).id,
+        tradingAccountId: 'default',
+        instrumentId: pos.instrumentId,
+        strategyId: pos.strategyId,
+        strategyName: pos.strategyName,
+        side: pos.side === 'LONG' ? 'SELL' : 'BUY', // Closing side
+        executedPrice: sim.price,
+        executedQuantity: pos.quantity,
+        pnl: sim.pnl,
+        profitUsd: sim.profitUsd,
+        timestamp: serverTimestamp(),
+        userId: user.uid,
+        type: 'LIVE_EXECUTION'
+      }
+      
+      await addDocumentNonBlocking(collection(db, 'users', user.uid, 'tradingAccounts', 'default', 'trades'), tradeData)
+
+      // 2. Add back to trading balance
       await setDocumentNonBlocking(doc(db, 'users', user.uid), {
         tradingBalance: profile.tradingBalance + returnAmt,
         updatedAt: serverTimestamp()
       }, { merge: true })
 
+      // 3. Remove active position
       await deleteDocumentNonBlocking(doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', posId))
-      setLogs(prev => [...prev, `[AWS] Kill signal sent to worker for ${posId}.`, `[SUCCESS] Position closed.`])
-      toast({ title: "Position Closed", description: "Market order executed successfully. Funds returned to Trading account." })
+      
+      setLogs(prev => [...prev, `[AWS] Kill signal sent to worker for ${posId}.`, `[SUCCESS] Position closed and archived to history.`])
+      toast({ title: "Position Closed", description: "Market order executed successfully. Funds returned and trade archived." })
     } catch (e) {
       toast({ variant: "destructive", title: "Error closing position" })
     }
