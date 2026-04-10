@@ -1,3 +1,4 @@
+
 "use client"
 
 import * as React from "react"
@@ -5,7 +6,7 @@ import {
   LayoutDashboard,
   Search,
   Code2,
-  History,
+  History as HistoryIcon,
   Play,
   Map as MapIcon,
   Settings,
@@ -14,7 +15,8 @@ import {
   Terminal,
   LogOut,
   User,
-  BrainCircuit
+  BrainCircuit,
+  ClipboardList
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -40,8 +42,9 @@ const mainNav = [
   { title: "AI Agent", icon: BrainCircuit, url: "/ai-agent" },
   { title: "Screener", icon: Search, url: "/screener" },
   { title: "Editor", icon: Code2, url: "/editor" },
-  { title: "Backtest", icon: History, url: "/backtest" },
+  { title: "Backtest", icon: HistoryIcon, url: "/backtest" },
   { title: "Live Trading", icon: Play, url: "/live" },
+  { title: "History", icon: ClipboardList, url: "/history" },
   { title: "Market Map", icon: MapIcon, url: "/heatmap" },
 ]
 
