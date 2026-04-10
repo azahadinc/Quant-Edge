@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -14,7 +13,8 @@ import {
   BarChart3,
   Terminal,
   LogOut,
-  User
+  User,
+  BrainCircuit
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -37,6 +37,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 const mainNav = [
   { title: "Dashboard", icon: LayoutDashboard, url: "/dashboard" },
+  { title: "AI Agent", icon: BrainCircuit, url: "/ai-agent" },
   { title: "Screener", icon: Search, url: "/screener" },
   { title: "Editor", icon: Code2, url: "/editor" },
   { title: "Backtest", icon: History, url: "/backtest" },
