@@ -223,8 +223,6 @@ export default function LiveTradingPage() {
     }, { totalEquity: 0, totalProfit: 0, invested: 0 })
   }, [persistentPositions, livePrices])
 
-  const floatingNetWorth = (profile?.vaultBalance || 0) + (profile?.tradingBalance || 0) + sessionMetrics.totalEquity;
-
   const handleTransfer = async () => {
     if (!db || !user || !profile) return
     const amount = parseFloat(transferAmount)
@@ -269,6 +267,10 @@ export default function LiveTradingPage() {
       `[AWS] Transmitting deployment intent to ${config.worker}...`,
     ])
 
+    const startPrice = INITIAL_MARKET_DATA.find(i => i.symbol === config.symbol)?.price || 180;
+    // Calculate quantity - use fractional shares for crypto/modern accounts
+    const calculatedQty = parseFloat((investAmt / startPrice).toFixed(6));
+
     let alpacaOrderId = null;
 
     if (config.broker === 'alpaca') {
@@ -277,37 +279,41 @@ export default function LiveTradingPage() {
         const conn = await testAlpacaConnection({ keyId: profile.alpacaKey, secretKey: profile.alpacaSecret });
         
         if (conn.success) {
-          setLogs(prev => [...prev, `[SUCCESS] Alpaca Verified. Status: ${conn.status}. Placing Order...`]);
-          const startPrice = INITIAL_MARKET_DATA.find(i => i.symbol === config.symbol)?.price || 180;
+          setLogs(prev => [...prev, `[SUCCESS] Alpaca Verified. Placing Market Order for ${calculatedQty} units...`]);
           const orderRes = await placeAlpacaOrder({
             config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret },
             symbol: config.symbol,
-            qty: Math.floor(investAmt / startPrice),
+            qty: calculatedQty,
             side: 'buy',
             type: 'market'
           });
 
           if (orderRes.success) {
             alpacaOrderId = orderRes.orderId;
-            setLogs(prev => [...prev, `[SUCCESS] Alpaca Order Placed: ${alpacaOrderId}`]);
+            setLogs(prev => [...prev, `[SUCCESS] Alpaca Order accepted. Status: ${orderRes.status}. ID: ${alpacaOrderId}`]);
           } else {
             setLogs(prev => [...prev, `[ERROR] Alpaca Order Failed: ${orderRes.error}`]);
+            toast({ variant: "destructive", title: "Alpaca Order Rejected", description: orderRes.error });
+            setIsDeploying(false);
+            return;
           }
         } else {
-          setLogs(prev => [...prev, `[ERROR] Alpaca Connection Failed: ${conn.error}. Falling back to virtual worker.`]);
+          setLogs(prev => [...prev, `[ERROR] Alpaca Handshake Failed: ${conn.error}. Deployment aborted.`]);
+          toast({ variant: "destructive", title: "Alpaca Auth Error", description: conn.error });
+          setIsDeploying(false);
+          return;
         }
       } else {
-        setLogs(prev => [...prev, `[WARN] Alpaca keys missing or default. Executing virtual strategy only.`]);
+        setLogs(prev => [...prev, `[WARN] Alpaca keys missing. Strategy will execute in virtual mode only.`]);
       }
     }
     
     setLogs(prev => [...prev, 
       `[AUTH] Authenticating with ${config.broker.toUpperCase()}...`, 
-      `[SUCCESS] Worker assigned via ${config.broker.toUpperCase()}. Execution starting.`
+      `[SUCCESS] Worker assigned. Real-time execution loop started.`
     ])
     
     const strategy = savedStrategies?.find((s: any) => s.id === config.strategyId)
-    const startPrice = INITIAL_MARKET_DATA.find(i => i.symbol === config.symbol)?.price || 64000
     
     const positionId = doc(collection(db, 'temp')).id
     const positionData = {
@@ -318,7 +324,7 @@ export default function LiveTradingPage() {
       broker: config.broker,
       side: 'LONG',
       entryPrice: startPrice,
-      quantity: investAmt / startPrice,
+      quantity: calculatedQty,
       status: 'open',
       entryTime: serverTimestamp(),
       userId: user.uid,
@@ -359,7 +365,7 @@ export default function LiveTradingPage() {
       setLogs(prev => [...prev, `[AWS] Kill signal sent to worker for ${posId}.`]);
 
       if (pos.broker === 'alpaca' && profile.alpacaKey && profile.alpacaSecret && profile.alpacaKey !== '************************') {
-        setLogs(prev => [...prev, `[SDK] Requesting Alpaca position liquidation...`]);
+        setLogs(prev => [...prev, `[SDK] Requesting Alpaca position liquidation for ${pos.instrumentId}...`]);
         const closeRes = await closeAlpacaPosition({
           config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret },
           symbol: pos.instrumentId
@@ -367,7 +373,7 @@ export default function LiveTradingPage() {
         if (closeRes.success) {
           setLogs(prev => [...prev, `[SUCCESS] Alpaca position closed.`]);
         } else {
-          setLogs(prev => [...prev, `[WARN] Alpaca close failed: ${closeRes.error}. System sync required.`]);
+          setLogs(prev => [...prev, `[WARN] Alpaca close failed: ${closeRes.error}. Manual reconciliation may be needed.`]);
         }
       }
 
@@ -403,7 +409,7 @@ export default function LiveTradingPage() {
 
       await deleteDocumentNonBlocking(doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', posId))
       
-      setLogs(prev => [...prev, `[SUCCESS] Position closed on ${pos.broker?.toUpperCase() || 'BINANCE'}.`])
+      setLogs(prev => [...prev, `[SUCCESS] Position closed. Capital returned to balance.`])
       toast({ title: "Position Closed", description: `$${returnAmt.toLocaleString()} returned to Trading Balance.` })
     } catch (e) {
       toast({ variant: "destructive", title: "Error closing position" })

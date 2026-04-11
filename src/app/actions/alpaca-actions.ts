@@ -43,18 +43,36 @@ export async function placeAlpacaOrder(params: {
       paper: params.config.paper ?? true,
     });
 
+    // Normalize symbol for Alpaca
+    // Crypto: BTC/USDT -> BTC/USD (Alpaca uses USD base for most paper crypto)
+    // Stocks: AAPL -> AAPL
+    let symbol = params.symbol.toUpperCase();
+    if (symbol.includes('/')) {
+      // Alpaca paper crypto usually uses /USD
+      if (symbol.endsWith('/USDT')) {
+        symbol = symbol.replace('/USDT', '/USD');
+      }
+    }
+
     const order = await alpaca.createOrder({
-      symbol: params.symbol.replace('/', ''), // Alpaca doesn't use slashes
+      symbol: symbol,
       qty: params.qty,
       side: params.side,
       type: params.type,
       time_in_force: 'gtc',
     });
 
-    return { success: true, orderId: order.id, status: order.status };
+    return { 
+      success: true, 
+      orderId: order.id, 
+      status: order.status,
+      symbol: order.symbol,
+      qty: order.qty,
+      filled_qty: order.filled_qty
+    };
   } catch (error: any) {
     console.error("Alpaca Order Error:", error);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message || "Unknown Alpaca Error" };
   }
 }
 
@@ -69,7 +87,12 @@ export async function closeAlpacaPosition(params: {
       paper: params.config.paper ?? true,
     });
 
-    await alpaca.closePosition(params.symbol.replace('/', ''));
+    // Normalize symbol for closing
+    let symbol = params.symbol.toUpperCase();
+    if (symbol.endsWith('/USDT')) symbol = symbol.replace('/USDT', '/USD');
+    symbol = symbol.replace('/', '');
+
+    await alpaca.closePosition(symbol);
     return { success: true };
   } catch (error: any) {
     console.error("Alpaca Close Error:", error);
@@ -91,9 +114,11 @@ export async function getAlpacaHistoricalBars(params: {
       paper: params.config.paper ?? true,
     });
 
-    // For simplicity in the prototype, we use a 1-hour timeframe
+    let symbol = params.symbol.toUpperCase().replace('/', '');
+    if (symbol === 'BTCUSDT') symbol = 'BTCUSD';
+
     const bars = alpaca.getBarsV2(
-      params.symbol.replace('/', ''),
+      symbol,
       {
         start: params.start,
         end: params.end,
