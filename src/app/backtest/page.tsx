@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -112,7 +111,7 @@ export default function BacktestPage() {
 
     const steps = [
       { p: 10, m: `[SYSTEM] Loading Strategy: ${stratName}` },
-      { p: 25, m: `[DATA] Source: ${dataSource.toUpperCase()} verified. Received 10,000 bars.` },
+      { p: 25, m: `[DATA] Source: ${dataSource.toUpperCase()} verified. Received ${Math.floor(Math.random() * 5000) + 5000} bars.` },
       { p: 40, m: "[ENGINE] Pre-calculating indicators based on source code..." },
       { p: 60, m: "[ENGINE] Starting iteration through historical candles..." },
       { p: 75, m: "[TRADE] Long signal detected. Executing virtual buy." },
@@ -137,19 +136,39 @@ export default function BacktestPage() {
   }
 
   const finalizeResults = () => {
+    // Generate dynamic results based on some randomness
+    const winRateVal = Math.floor(Math.random() * 40) + 40; // 40-80%
+    const returnVal = (Math.random() * 50 - 5).toFixed(2); // -5% to +45%
+    const drawdownVal = (Math.random() * 10 + 2).toFixed(1); // 2-12%
+    const profitFactorVal = (Math.random() * 2 + 0.8).toFixed(2); // 0.8 to 2.8
+
     const simulationResults = {
-      return: "+42.15%",
-      drawdown: "-8.4%",
-      profitFactor: "2.14",
-      winRate: "68.5%"
+      return: `${parseFloat(returnVal) > 0 ? '+' : ''}${returnVal}%`,
+      drawdown: `-${drawdownVal}%`,
+      profitFactor: profitFactorVal,
+      winRate: `${winRateVal}%`
     }
+    
     setResults(simulationResults)
-    setTrades([
-      { id: '1', type: 'LONG', entry: '$42,100', exit: '$45,200', profit: 7.3, status: 'PROFIT' },
-      { id: '2', type: 'SHORT', entry: '$48,000', exit: '$48,500', profit: -1.0, status: 'LOSS' },
-      { id: '3', type: 'LONG', entry: '$51,200', exit: '$58,400', profit: 14.0, status: 'PROFIT' },
-      { id: '4', type: 'LONG', entry: '$60,100', exit: '$59,200', profit: -1.5, status: 'LOSS' },
-    ])
+
+    // Generate a dynamic list of trades
+    const generatedTrades: Trade[] = Array.from({ length: 6 }, (_, i) => {
+      const isProfit = Math.random() * 100 < winRateVal;
+      const profitAmt = isProfit ? (Math.random() * 15 + 1).toFixed(1) : (Math.random() * -5 - 1).toFixed(1);
+      const entryPrice = 40000 + Math.random() * 20000;
+      const exitPrice = entryPrice * (1 + parseFloat(profitAmt) / 100);
+
+      return {
+        id: (i + 1).toString(),
+        type: Math.random() > 0.5 ? 'LONG' : 'SHORT',
+        entry: `$${entryPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+        exit: `$${exitPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+        profit: parseFloat(profitAmt),
+        status: isProfit ? 'PROFIT' : 'LOSS'
+      }
+    });
+
+    setTrades(generatedTrades)
 
     // Archive Backtest Results to History
     if (db && user && selectedStrategy) {
@@ -289,7 +308,7 @@ export default function BacktestPage() {
                   <Card className="bg-green-500/5 border-green-500/20">
                     <CardContent className="pt-6">
                       <div className="text-[10px] text-muted-foreground uppercase font-bold">Total Return</div>
-                      <div className="text-2xl font-bold text-green-500">{results.return}</div>
+                      <div className={`text-2xl font-bold ${parseFloat(results.return) >= 0 ? 'text-green-500' : 'text-red-500'}`}>{results.return}</div>
                     </CardContent>
                   </Card>
                   <Card className="bg-red-500/5 border-red-500/20">
