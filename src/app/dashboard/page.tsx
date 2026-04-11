@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useEffect } from 'react'
@@ -129,12 +128,12 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-primary/10 border-primary/20">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-xs font-bold uppercase text-primary">Total Balance</CardTitle>
+            <CardTitle className="text-xs font-bold uppercase text-primary">Total Balance (Net)</CardTitle>
             <Coins className="w-4 h-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold font-mono">${balances.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Aggregated Asset Value</p>
+            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Realized Asset Value</p>
           </CardContent>
         </Card>
         <Card className="bg-card">
@@ -154,7 +153,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold font-mono text-accent">${balances.trading.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Funds Available for Bots</p>
+            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Liquid Execution Funds</p>
           </CardContent>
         </Card>
       </div>

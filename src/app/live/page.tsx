@@ -115,31 +115,42 @@ export default function LiveTradingPage() {
   }, [logs])
 
   useEffect(() => {
-    if (!persistentPositions || persistentPositions.length === 0) return
+    if (!persistentPositions || persistentPositions.length === 0) {
+      setLivePrices({})
+      return
+    }
 
     const interval = setInterval(() => {
       setLivePrices(prev => {
         const next = { ...prev }
         persistentPositions.forEach(pos => {
-          const basePrice = INITIAL_MARKET_DATA.find(i => i.symbol === pos.instrumentId)?.price || 64000
-          const currentData = next[pos.id] || { 
-            price: pos.entryPrice, 
-            pnl: 0, 
-            profitUsd: 0,
-            tradeCount: pos.tradeCount || 1,
-            chart: Array.from({length: 20}, (_, i) => ({ val: pos.entryPrice + (Math.random() - 0.5) * (pos.entryPrice * 0.01), t: i })) 
+          const baseData = INITIAL_MARKET_DATA.find(i => i.symbol === pos.instrumentId)
+          const basePrice = baseData?.price || 64000
+          
+          if (!next[pos.id]) {
+            next[pos.id] = { 
+              price: pos.entryPrice, 
+              pnl: 0, 
+              profitUsd: 0,
+              tradeCount: pos.tradeCount || 1,
+              chart: Array.from({length: 20}, (_, i) => ({ val: pos.entryPrice, t: i })) 
+            }
           }
           
-          const change = (Math.random() - 0.49) * (basePrice * 0.001)
+          const currentData = next[pos.id]
+          const change = (Math.random() - 0.495) * (basePrice * 0.001) // subtle random walk
           const newPrice = currentData.price + change
-          const pnl = ((newPrice - pos.entryPrice) / pos.entryPrice) * 100 * (pos.side === 'LONG' ? 1 : -1)
-          const profitUsd = (newPrice - pos.entryPrice) * (pos.quantity || 1) * (pos.side === 'LONG' ? 1 : -1)
+          
+          // Calculate PnL based on entry price and quantity
+          const diff = newPrice - pos.entryPrice
+          const pnl = (diff / pos.entryPrice) * 100 * (pos.side === 'LONG' ? 1 : -1)
+          const profitUsd = diff * (pos.quantity || 1) * (pos.side === 'LONG' ? 1 : -1)
           
           next[pos.id] = {
+            ...currentData,
             price: newPrice,
             pnl: pnl,
             profitUsd: profitUsd,
-            tradeCount: currentData.tradeCount,
             chart: [...currentData.chart.slice(-24), { val: newPrice, t: currentData.chart.length }]
           }
         })
@@ -158,9 +169,13 @@ export default function LiveTradingPage() {
       return
     }
 
+    const newVault = profile.vaultBalance - amount
+    const newTrading = (profile.tradingBalance || 0) + amount
+
     const updatedProfile = {
-      vaultBalance: profile.vaultBalance - amount,
-      tradingBalance: (profile.tradingBalance || 0) + amount,
+      vaultBalance: newVault,
+      tradingBalance: newTrading,
+      totalBalance: newVault + newTrading,
       updatedAt: serverTimestamp(),
     }
 
@@ -211,7 +226,8 @@ export default function LiveTradingPage() {
       infrastructure: 'aws-ec2-us-east-1',
       workerId: config.worker,
       timeframe: config.timeframe,
-      tradeCount: 1
+      tradeCount: 1,
+      investAmt: investAmt
     }
 
     try {
@@ -243,8 +259,9 @@ export default function LiveTradingPage() {
       const sim = livePrices[posId] || { price: pos.entryPrice, pnl: 0, profitUsd: 0, tradeCount: 1 }
       
       // Calculate return amount (Investment + Profit)
-      const investment = (pos?.quantity || 0) * (pos?.entryPrice || 0)
-      const returnAmt = investment + (sim?.profitUsd || 0)
+      // pos.investAmt is the original dollar amount deducted.
+      const originalInvestment = pos.investAmt || ((pos.quantity || 0) * (pos.entryPrice || 0))
+      const returnAmt = originalInvestment + (sim?.profitUsd || 0)
 
       // 1. Create a permanent Trade Record for History
       const tradeData = {
@@ -265,9 +282,11 @@ export default function LiveTradingPage() {
       
       await addDocumentNonBlocking(collection(db, 'users', user.uid, 'tradingAccounts', 'default', 'trades'), tradeData)
 
-      // 2. Add back to trading balance
+      // 2. Add back to trading balance and update total net worth
+      const newTradingBalance = profile.tradingBalance + returnAmt
       await setDocumentNonBlocking(doc(db, 'users', user.uid), {
-        tradingBalance: profile.tradingBalance + returnAmt,
+        tradingBalance: newTradingBalance,
+        totalBalance: profile.vaultBalance + newTradingBalance,
         updatedAt: serverTimestamp()
       }, { merge: true })
 
@@ -275,7 +294,7 @@ export default function LiveTradingPage() {
       await deleteDocumentNonBlocking(doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', posId))
       
       setLogs(prev => [...prev, `[AWS] Kill signal sent to worker for ${posId}.`, `[SUCCESS] Position closed and archived to history.`])
-      toast({ title: "Position Closed", description: "Market order executed successfully. Funds returned and trade archived." })
+      toast({ title: "Position Closed", description: `Market order executed. $${returnAmt.toLocaleString(undefined, {minimumFractionDigits: 2})} returned to Trading Balance.` })
     } catch (e) {
       toast({ variant: "destructive", title: "Error closing position" })
     }
