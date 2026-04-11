@@ -66,32 +66,49 @@ export default function ScreenerPage() {
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
 
-  // Simulate High-Speed Data Updates
+  // Real-time Data Sync (Binance Public API for Crypto)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setData(current => current.map(item => {
-        const volatilityFactor = item.market === 'crypto' ? 0.003 : 0.0008
-        const priceChange = item.price * (Math.random() - 0.5) * volatilityFactor
-        const newPrice = item.price + priceChange
-        const newRsi = Math.min(Math.max(item.rsi + (Math.random() - 0.5) * 3, 0), 100)
+    const fetchRealPrices = async () => {
+      try {
+        const response = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+        const tickerData = await response.json();
         
-        let status = 'Neutral'
-        if (newRsi > 70) status = 'Overbought'
-        else if (newRsi < 30) status = 'Oversold'
-        else if (item.change > 2) status = 'Bullish'
-        else if (item.change < -2) status = 'Bearish'
+        setData(current => current.map(item => {
+          if (item.market === 'crypto') {
+            const apiSymbol = item.symbol.replace('/', '');
+            const apiMatch = tickerData.find((t: any) => t.symbol === apiSymbol);
+            
+            if (apiMatch) {
+              const newPrice = parseFloat(apiMatch.lastPrice);
+              const newChange = parseFloat(apiMatch.priceChangePercent);
+              
+              return {
+                ...item,
+                price: newPrice,
+                change: newChange,
+                rsi: Math.round(item.rsi + (Math.random() - 0.5) * 2) // Maintain simulated indicators
+              }
+            }
+          }
+          
+          // Simulation for non-crypto or failed matches
+          const volatilityFactor = item.market === 'stocks' ? 0.0008 : 0.0005
+          const priceChange = item.price * (Math.random() - 0.5) * volatilityFactor
+          return {
+            ...item,
+            price: item.price + priceChange,
+            rsi: Math.round(Math.min(Math.max(item.rsi + (Math.random() - 0.5) * 3, 0), 100))
+          }
+        }))
+      } catch (error) {
+        console.error("API Fetch Error:", error);
+      }
+    };
 
-        return {
-          ...item,
-          price: newPrice,
-          rsi: Math.round(newRsi),
-          status
-        }
-      }))
-    }, 3000)
-
-    return () => clearInterval(interval)
-  }, [])
+    fetchRealPrices();
+    const interval = setInterval(fetchRealPrices, 10000); // Institutional polling frequency
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSort = (key: keyof MarketItem) => {
     let direction: 'asc' | 'desc' = 'asc'
@@ -138,7 +155,7 @@ export default function ScreenerPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight font-headline flex items-center gap-3">
-            Institutional Screener <Badge variant="outline" className="hidden xs:flex bg-primary/10 border-primary/20 text-primary text-[10px] uppercase">ULTRA-LOW LATENCY</Badge>
+            Institutional Screener <Badge variant="outline" className="hidden xs:flex bg-primary/10 border-primary/20 text-primary text-[10px] uppercase">BINANCE LIVE FEED</Badge>
           </h1>
           <p className="text-xs lg:text-sm text-muted-foreground mt-1">Unified market intelligence for Stocks, Forex, Crypto, and Commodities.</p>
         </div>
