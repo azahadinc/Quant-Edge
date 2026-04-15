@@ -1,0 +1,7 @@
+jesse==1.13.11
+fastapi==0.111.1
+uvicorn==0.29.0
+pydantic==2.10.6
+python-multipart==0.0.9
+aiofiles==0.7.0
+python-dotenv==0.19.2

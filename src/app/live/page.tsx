@@ -27,7 +27,7 @@ import { useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from '@
 import { collection, doc, serverTimestamp, query, where } from 'firebase/firestore'
 import { setDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase/non-blocking-updates'
 import { INITIAL_MARKET_DATA } from '@/lib/market-data'
-import { testAlpacaConnection, placeAlpacaOrder, closeAlpacaPosition, getAlpacaAccountDetails } from '@/app/actions/alpaca-actions'
+import { testAlpacaConnection, placeAlpacaOrder, closeAlpacaPosition, getAlpacaAccountDetails, getAlpacaPositions } from '@/app/actions/alpaca-actions'
 
 function RuntimeDisplay({ entryTime }: { entryTime: any }) {
   const [runtime, setRuntime] = useState("00:00:00")
@@ -67,7 +67,9 @@ export default function LiveTradingPage() {
   const [isTransferOpen, setIsTransferOpen] = useState(false)
   const [transferAmount, setTransferAmount] = useState("5000")
   const [alpacaAccount, setAlpacaAccount] = useState<any>(null)
+  const [alpacaPositions, setAlpacaPositions] = useState<any[]>([])
   const [isLoadingAlpaca, setIsLoadingAlpaca] = useState(false)
+  const [isLoadingAlpacaPositions, setIsLoadingAlpacaPositions] = useState(false)
 
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Terminal Initialized.",
@@ -131,8 +133,26 @@ export default function LiveTradingPage() {
         })
         if (res.success) {
           setAlpacaAccount(res)
+        } else {
+          setAlpacaAccount(null)
         }
         setIsLoadingAlpaca(false)
+
+        setIsLoadingAlpacaPositions(true)
+        const positionsRes = await getAlpacaPositions({
+          keyId: profile.alpacaKey,
+          secretKey: profile.alpacaSecret,
+          paper: true
+        })
+        if (positionsRes.success) {
+          setAlpacaPositions(positionsRes.positions)
+        } else {
+          setAlpacaPositions([])
+        }
+        setIsLoadingAlpacaPositions(false)
+      } else {
+        setAlpacaAccount(null)
+        setAlpacaPositions([])
       }
     }
     fetchAlpaca()
@@ -301,7 +321,7 @@ export default function LiveTradingPage() {
         if (conn.success) {
           setLogs(prev => [...prev, `[SUCCESS] Alpaca Verified. Placing Market Order for ${calculatedQty} units...`]);
           const orderRes = await placeAlpacaOrder({
-            config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret },
+            config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret, paper: true },
             symbol: config.symbol,
             qty: calculatedQty,
             side: 'buy',
@@ -387,7 +407,7 @@ export default function LiveTradingPage() {
       if (pos.broker === 'alpaca' && profile.alpacaKey && profile.alpacaSecret && profile.alpacaKey !== '************************') {
         setLogs(prev => [...prev, `[SDK] Requesting Alpaca position liquidation for ${pos.instrumentId}...`]);
         const closeRes = await closeAlpacaPosition({
-          config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret },
+          config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret, paper: true },
           symbol: pos.instrumentId
         });
         if (closeRes.success) {
@@ -580,6 +600,41 @@ export default function LiveTradingPage() {
                     <div className="text-[11px] font-mono font-bold">${parseFloat(alpacaAccount.equity).toLocaleString()}</div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {alpacaAccount && (
+            <Card className="bg-card/20 border-border animate-in fade-in slide-in-from-left-4 duration-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-[10px] font-bold uppercase text-muted-foreground flex items-center justify-between">
+                  Open Alpaca Positions
+                  <Badge variant="outline" className="text-[8px] bg-primary/10 text-primary border-none h-4 uppercase">Paper</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {isLoadingAlpacaPositions ? (
+                  <div className="text-[10px] text-muted-foreground">Loading positions...</div>
+                ) : alpacaPositions.length > 0 ? (
+                  <div className="space-y-3">
+                    {alpacaPositions.map((position) => (
+                      <div key={position.symbol} className="rounded-xl border border-white/10 p-3 bg-[#0F1317]">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold">{position.symbol}</div>
+                          <div className={`text-[10px] uppercase font-bold ${position.side === 'long' ? 'text-emerald-400' : 'text-rose-400'}`}>{position.side}</div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground mt-2">
+                          <div>Qty: {position.qty.toFixed(4)}</div>
+                          <div>Price: ${position.avgEntryPrice.toFixed(2)}</div>
+                          <div>Unrealized P/L: ${position.unrealizedPl.toFixed(2)}</div>
+                          <div>Change: {position.unrealizedPlPc.toFixed(2)}%</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-muted-foreground">No open Alpaca positions found.</div>
+                )}
               </CardContent>
             </Card>
           )}

@@ -69,16 +69,11 @@ export async function placeAlpacaOrder(params: {
     });
 
     // Normalize symbol for Alpaca
-    // Crypto: BTC/USDT -> BTC/USD
+    // Crypto: BTC/USDT -> BTCUSD
     // Stocks: AAPL -> AAPL
-    let symbol = params.symbol.toUpperCase();
-    if (symbol.includes('/')) {
-      if (symbol.endsWith('/USDT')) {
-        symbol = symbol.replace('/USDT', '/USD');
-      }
-    } else {
-      symbol = symbol.replace('/', '');
-    }
+    let symbol = params.symbol.toUpperCase().replace(/\s+/g, '');
+    symbol = symbol.replace('/USDT', '/USD');
+    symbol = symbol.replace('/', '');
 
     const order = await alpaca.createOrder({
       symbol: symbol,
@@ -114,14 +109,44 @@ export async function closeAlpacaPosition(params: {
     });
 
     // Normalize symbol for closing
-    let symbol = params.symbol.toUpperCase();
-    if (symbol.endsWith('/USDT')) symbol = symbol.replace('/USDT', '/USD');
+    let symbol = params.symbol.toUpperCase().replace(/\s+/g, '');
+    symbol = symbol.replace('/USDT', '/USD');
     symbol = symbol.replace('/', '');
 
     await alpaca.closePosition(symbol);
     return { success: true };
   } catch (error: any) {
     console.error("Alpaca Close Error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+export async function getAlpacaPositions(config: AlpacaConfig) {
+  try {
+    const alpaca = new Alpaca({
+      keyId: config.keyId,
+      secretKey: config.secretKey,
+      paper: config.paper ?? true,
+    });
+
+    const positions = await alpaca.getPositions();
+    const normalized = positions.map((pos: any) => ({
+      symbol: pos.symbol,
+      qty: parseFloat(pos.qty),
+      side: pos.side,
+      avgEntryPrice: parseFloat(pos.avg_entry_price),
+      marketValue: parseFloat(pos.market_value),
+      costBasis: parseFloat(pos.cost_basis),
+      unrealizedPl: parseFloat(pos.unrealized_pl),
+      unrealizedPlPc: parseFloat(pos.unrealized_plpc),
+      currentPrice: parseFloat(pos.current_price),
+      exchange: pos.exchange,
+      assetClass: pos.asset_class,
+    }));
+
+    return { success: true, positions: normalized };
+  } catch (error: any) {
+    console.error('Alpaca Positions Error:', error);
     return { success: false, error: error.message };
   }
 }
