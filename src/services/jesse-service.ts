@@ -414,11 +414,8 @@ except Exception as e:
     // Basic validation - check for required Jesse structure
     const errors: string[] = [];
 
-    if (!code.includes('import jesse.strategies as strategies')) {
-      errors.push('Missing Jesse strategies import');
-    }
-
-    if (!code.includes('class ') || !code.includes('Strategy')) {
+    const hasStrategyClass = /class\s+\w*Strategy\b/.test(code) || /class\s+\w*\(.*Strategy.*\)/.test(code);
+    if (!hasStrategyClass) {
       errors.push('Strategy class not found');
     }
 
@@ -430,8 +427,19 @@ except Exception as e:
       errors.push('No position execution methods defined (go_long or go_short)');
     }
 
+    const hasJesseImport =
+      code.includes('import jesse.strategies') ||
+      code.includes('from jesse.strategies import') ||
+      code.includes('from jesse import strategies') ||
+      code.includes('import jesse');
+
+    if (!hasJesseImport) {
+      // Warn if Jesse import is missing, but allow user-provided code to be validated if it otherwise appears valid.
+      errors.push('Recommended: include Jesse import statements (e.g., import jesse.strategies as strategies)');
+    }
+
     return {
-      valid: errors.length === 0,
+      valid: errors.filter(e => !e.startsWith('Recommended:')).length === 0,
       errors
     };
   }
