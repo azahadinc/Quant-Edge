@@ -9,8 +9,9 @@ export async function GET() {
     return NextResponse.json({ strategies });
   } catch (error) {
     console.error('Error listing strategies:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to create strategy';
     return NextResponse.json(
-      { error: 'Failed to list strategies' },
+      { error: errorMessage },
       { status: 500 }
     );
   }
@@ -35,11 +36,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'create' && params.name && params.code) {
+      // Validate the strategy before writing it to disk
+      const validation = await jesseService.validateStrategy(params.code);
+      if (!validation.valid) {
+        return NextResponse.json(
+          { error: 'Strategy validation failed', validation },
+          { status: 400 }
+        );
+      }
+
       // Create strategy from provided code
       await jesseService.createStrategy(params.name, params.code);
-
-      // Validate the strategy
-      const validation = await jesseService.validateStrategy(params.code);
 
       return NextResponse.json({
         success: true,

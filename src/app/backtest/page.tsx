@@ -184,7 +184,8 @@ export default function BacktestPage() {
         })
 
         if (!createResponse.ok) {
-          throw new Error('Failed to create strategy')
+          const errorData = await createResponse.json().catch(() => ({ error: 'Failed to create strategy' }))
+          throw new Error(errorData.error || 'Failed to create strategy')
         }
 
         setLogs(prev => [...prev, "[JESSE] Strategy code deployed to Jesse engine"])

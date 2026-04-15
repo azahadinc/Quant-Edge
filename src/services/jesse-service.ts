@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
 import fs from 'fs/promises';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
@@ -49,11 +50,15 @@ export interface StrategyInfo {
 
 export class JesseService extends EventEmitter {
   private jessePath: string;
+  private repoJessePath: string;
+  private fallbackJessePath: string;
   private pythonPath: string;
 
   constructor() {
     super();
-    this.jessePath = path.join(process.cwd(), 'src', 'jesse');
+    this.repoJessePath = path.join(process.cwd(), 'src', 'jesse');
+    this.fallbackJessePath = path.join(os.tmpdir(), 'quantedge', 'jesse');
+    this.jessePath = process.env.JESSE_PATH || this.repoJessePath;
     // Use virtual environment Python
     this.pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
   }
@@ -196,24 +201,45 @@ print(json.dumps(result))
       throw new Error('Invalid strategy code: must contain a Strategy class');
     }
 
-    await fs.writeFile(strategyPath, code, 'utf-8');
+    await fs.mkdir(path.dirname(strategyPath), { recursive: true });
+
+    try {
+      await fs.writeFile(strategyPath, code, 'utf-8');
+    } catch (error: any) {
+      if (['EACCES', 'EPERM', 'ENOENT'].includes(error.code)) {
+        const fallbackStrategyDir = path.join(this.fallbackJessePath, 'strategies');
+        await fs.mkdir(fallbackStrategyDir, { recursive: true });
+        const fallbackStrategyPath = path.join(fallbackStrategyDir, `${name}.py`);
+        await fs.writeFile(fallbackStrategyPath, code, 'utf-8');
+        this.jessePath = this.fallbackJessePath;
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
    * List available strategies
    */
   async listStrategies(): Promise<string[]> {
-    const strategiesDir = path.join(this.jessePath, 'strategies');
+    const strategyDirs = [
+      path.join(this.repoJessePath, 'strategies'),
+      path.join(this.jessePath, 'strategies')
+    ];
+    const strategySet = new Set<string>();
 
-    try {
-      const files = await fs.readdir(strategiesDir);
-      return files
-        .filter(file => file.endsWith('.py') && file !== '__init__.py' && file !== 'base_strategy.py')
-        .map(file => file.replace('.py', ''));
-    } catch (error) {
-      console.error('Error listing strategies:', error);
-      return [];
+    for (const dir of strategyDirs) {
+      try {
+        const files = await fs.readdir(dir);
+        files
+          .filter(file => file.endsWith('.py') && file !== '__init__.py' && file !== 'base_strategy.py')
+          .forEach(file => strategySet.add(file.replace('.py', '')));
+      } catch {
+        // Ignore missing directories or unreadable paths
+      }
     }
+
+    return Array.from(strategySet);
   }
 
   /**
@@ -221,9 +247,15 @@ print(json.dumps(result))
    */
   async getStrategyInfo(name: string): Promise<StrategyInfo | null> {
     const strategyPath = path.join(this.jessePath, 'strategies', `${name}.py`);
+    const repoStrategyPath = path.join(this.repoJessePath, 'strategies', `${name}.py`);
 
     try {
-      const code = await fs.readFile(strategyPath, 'utf-8');
+      let code: string;
+      try {
+        code = await fs.readFile(strategyPath, 'utf-8');
+      } catch {
+        code = await fs.readFile(repoStrategyPath, 'utf-8');
+      }
 
       // Extract DNA using Python script
       const dna = await this.extractStrategyDNA(name);
