@@ -50,7 +50,8 @@ export async function getAlpacaAccountDetails(config: AlpacaConfig) {
 }
 
 export async function testAlpacaConnection(config: AlpacaConfig) {
-  try {Config = getAlpacaConfig(config);
+  try {
+    const alpacaConfig = getAlpacaConfig(config);
     const alpaca = new Alpaca({
       keyId: alpacaConfig.keyId,
       secretKey: alpacaConfig.secretKey,
