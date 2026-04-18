@@ -76,56 +76,52 @@ export default function BinanceSimTradingPage() {
   }, [db, user])
   const { data: profile } = useDoc<any>(profileRef)
 
-  const profileBinanceKey = profile?.binanceApiKey || profile?.binanceKey || ''
-  const profileBinanceSecret = profile?.binanceApiSecret || profile?.binanceSecret || ''
-
-  const hasValidBinanceCredentials = Boolean(
-    profileBinanceKey &&
-    profileBinanceSecret &&
-    !profileBinanceKey.includes('*') &&
-    !profileBinanceSecret.includes('*')
-  )
-
   useEffect(() => {
     if (logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
   }, [logs])
 
-  // Fetch Binance testnet account details on mount
+  // Initialize simulated account on mount
   useEffect(() => {
-    const fetchBinance = async () => {
-      if (!hasValidBinanceCredentials) {
-        setLogs(prev => [...prev, `[ERROR] Binance API credentials not found. Please add your credentials in Settings.`])
-        return
-      }
-
+    const initializeSimulation = async () => {
       setIsLoadingBinance(true)
       try {
-        // Test connection to Binance Testnet
+        // Fetch real market data from Binance public API
         const response = await fetch('/api/binance/ticker')
         if (response.ok) {
           const result = await response.json()
           if (result.success) {
-            setLogs(prev => [...prev, `[SUCCESS] Connected to Binance Testnet`])
-            // Simulate account data
-            setBinanceAccount({
-              status: 'Active',
-              balances: {
-                USDT: 10000,
-                BTC: 0.5
-              },
-              totalAssetOfBtc: '1.5'
-            })
+            setLogs(prev => [...prev, `[SUCCESS] Connected to Binance Public API (Live Market Data)`])
           }
         }
+        
+        // Initialize simulated account with virtual funds
+        setBinanceAccount({
+          status: 'Simulation Active',
+          balances: {
+            USDT: 10000,
+            BTC: 0.5
+          },
+          totalAssetOfBtc: '1.5'
+        })
+        setLogs(prev => [...prev, `[SYSTEM] Simulation account initialized: 10,000 USDT + 0.5 BTC`])
       } catch (error: any) {
-        setLogs(prev => [...prev, `[ERROR] Failed to connect to Binance: ${error.message}`])
+        setLogs(prev => [...prev, `[WARNING] Could not fetch live data: ${error.message} - Using simulation mode`])
+        // Still initialize account in simulation even if data fetch fails
+        setBinanceAccount({
+          status: 'Simulation Active',
+          balances: {
+            USDT: 10000,
+            BTC: 0.5
+          },
+          totalAssetOfBtc: '1.5'
+        })
       }
       setIsLoadingBinance(false)
     }
-    fetchBinance()
-  }, [hasValidBinanceCredentials])
+    initializeSimulation()
+  }, [])
 
   // Fetch current prices
   useEffect(() => {
@@ -154,11 +150,6 @@ export default function BinanceSimTradingPage() {
 
   const placeOrder = async (side: 'BUY' | 'SELL') => {
     if (!profile || !user || !db) return
-    if (!hasValidBinanceCredentials) {
-      setLogs(prev => [...prev, `[ERROR] Binance credentials not configured. Go to Settings to add your API keys.`])
-      toast({ variant: 'destructive', title: 'Binance Credentials Required', description: 'Please configure Binance API keys in Settings.' })
-      return
-    }
 
     setIsPlacingOrder(true)
     const qty = parseFloat(quantity)
@@ -198,7 +189,7 @@ export default function BinanceSimTradingPage() {
       setLogs(prev => [...prev, `[SUCCESS] Order placed: ${orderId}. ${qty} ${symbol} ${side} at $${currentPrice.toFixed(2)}`])
       toast({ title: 'Order Placed', description: `${qty} ${symbol} ${side === 'BUY' ? 'bought' : 'sold'} (Testnet).` })
       
-      // Register trade as a bot for tracking
+      // Register trade as a bot for tracking (simulation mode)
       try {
         const registerRes = await fetch('/api/live/register-trade', {
           method: 'POST',
@@ -210,8 +201,7 @@ export default function BinanceSimTradingPage() {
             side: side.toLowerCase(),
             exchange: 'binance',
             mode: 'PAPER',
-            binanceApiKey: profileBinanceKey,
-            binanceApiSecret: profileBinanceSecret,
+            // No API keys needed - pure simulation
           }),
         })
         
@@ -248,22 +238,17 @@ export default function BinanceSimTradingPage() {
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Binance Sim Trading</h1>
-          <p className="text-sm text-muted-foreground">Practice trading on Binance Testnet with virtual funds</p>
+          <h1 className="text-3xl font-bold">Binance Simulation Trading</h1>
+          <p className="text-sm text-muted-foreground">Practice strategies with real Binance market data - 100% simulation, no real trades</p>
         </div>
-        <Button variant="outline" onClick={() => router.push('/settings')}>
-          Configure API Keys
-        </Button>
       </div>
 
-      {!hasValidBinanceCredentials && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Binance API credentials not found. <Button variant="link" onClick={() => router.push('/settings')} className="h-auto p-0">Add your API keys in Settings</Button>
-          </AlertDescription>
-        </Alert>
-      )}
+      <Alert variant="default" className="border-blue-500/20 bg-blue-500/5">
+        <AlertCircle className="h-4 w-4 border-blue-500" />
+        <AlertDescription>
+          🎯 <strong>Simulation Mode:</strong> All trades use real Binance market data but execute only in simulation. No real account or API keys required.
+        </AlertDescription>
+      </Alert>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card>
@@ -334,7 +319,7 @@ export default function BinanceSimTradingPage() {
             <div className="flex gap-2">
               <Button
                 onClick={() => placeOrder('BUY')}
-                disabled={isPlacingOrder || !hasValidBinanceCredentials}
+                disabled={isPlacingOrder}
                 className="flex-1 bg-green-600 hover:bg-green-700"
               >
                 {isPlacingOrder ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
@@ -342,7 +327,7 @@ export default function BinanceSimTradingPage() {
               </Button>
               <Button
                 onClick={() => placeOrder('SELL')}
-                disabled={isPlacingOrder || !hasValidBinanceCredentials}
+                disabled={isPlacingOrder}
                 className="flex-1 bg-red-600 hover:bg-red-700"
               >
                 {isPlacingOrder ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
