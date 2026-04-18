@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import Link from 'next/link'
-import { Activity, TrendingUp, TrendingDown, Zap, Loader2 } from 'lucide-react'
+import { Activity, TrendingUp, TrendingDown, Zap, Loader2, AlertCircle } from 'lucide-react'
 
 interface BotStatus {
   botId: string
@@ -30,17 +30,28 @@ interface BotStatus {
 export function ActiveBotsPanel() {
   const [bots, setBots] = useState<BotStatus[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchBots = async () => {
       try {
+        console.log('[ActiveBotsPanel] Fetching bots...');
         const response = await fetch('/api/live/bots')
+        console.log('[ActiveBotsPanel] Response status:', response.status);
+        
         if (response.ok) {
           const data = await response.json()
+          console.log('[ActiveBotsPanel] Received data:', data);
           setBots(data.bots || [])
+          setError(null)
+        } else {
+          const errorData = await response.text();
+          console.error('[ActiveBotsPanel] Error response:', errorData);
+          setError(`API Error: ${response.status}`)
         }
       } catch (error) {
-        console.error('Failed to fetch bots:', error)
+        console.error('[ActiveBotsPanel] Failed to fetch bots:', error)
+        setError(`Fetch error: ${error instanceof Error ? error.message : 'Unknown error'}`)
       } finally {
         setLoading(false)
       }
@@ -62,6 +73,31 @@ export function ActiveBotsPanel() {
         <CardContent>
           <div className="flex items-center justify-center h-32">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className="border-border/50 bg-card/30">
+        <CardHeader>
+          <CardTitle className="text-sm font-bold flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" /> Active Trading Bots
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center h-32 text-center gap-2">
+            <AlertCircle className="w-8 h-8 text-red-500" />
+            <p className="text-sm text-red-500">{error}</p>
+            <Button 
+              size="sm" 
+              onClick={() => window.location.reload()}
+              className="mt-2"
+            >
+              Retry
+            </Button>
           </div>
         </CardContent>
       </Card>

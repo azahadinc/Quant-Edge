@@ -383,40 +383,14 @@ export default function BinanceSimTradingPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Open Positions ({binancePositions.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {binancePositions.length > 0 ? (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {binancePositions.slice(0, 5).map((pos: any, idx: number) => {
-                  const currentPrice = currentPrices[pos.symbol] || pos.entryPrice
-                  const unrealizedPnL = (currentPrice - pos.entryPrice) * pos.qty
-                  const unrealizedPnLPercent = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
-                  
-                  return (
-                    <div key={idx} className="flex justify-between items-center text-sm p-2 border border-border rounded">
-                      <div>
-                        <p className="font-semibold">{pos.symbol}</p>
-                        <p className="text-xs text-muted-foreground">{pos.qty} @ ${pos.entryPrice.toFixed(2)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold">${currentPrice.toFixed(2)}</p>
-                        <p className={`text-xs ${unrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {unrealizedPnL >= 0 ? '+' : ''}{unrealizedPnLPercent.toFixed(2)}%
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No open positions</p>
-            )}
-          </CardContent>
-        </Card>
       </div>
+
+      <Alert variant="default" className="border-green-500/20 bg-green-500/5">
+        <Activity className="h-4 w-4 text-green-500" />
+        <AlertDescription>
+          📊 <strong>View Your Trades:</strong> All positions and equity curves are displayed in the <strong>Active Trading Bots</strong> panel below. Click on any bot trade to see detailed analytics, market regime, and real-time P&L updates.
+        </AlertDescription>
+      </Alert>
 
       <Card>
         <CardHeader>

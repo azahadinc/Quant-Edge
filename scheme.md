@@ -4,10 +4,10 @@ __________________________________________________________________________
 |Bot                                                                        | 
 |PORTFOLIO (Live Account or Paper)                                        |
 |________________________________________________________________________|
-| Equity: $100,245.50  | Day P&L: +$450.12 (+0.45%)                      |
+|Equity:invested Equit amount($10)|Day P&L:+$45(+0 45%)                 |
 | Buying Power: $85,430| Current Leverage: 1.25x                         |
 |______________________|_________________________________________________|
-| MARKET REGIME & BRAIN                                                  |
+| MARKET REGIME                                                          |
 |________________________________________________________________________|
 | Detected: BULL       | Confidence: 88%       | Status: STABLE          |
 | Target Alloc: 95%    | Current Alloc: 92%    | Rebalance: PENDING      |

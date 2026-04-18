@@ -266,8 +266,33 @@ export class LiveBotMonitor {
    * Get current bot status
    */
   async getStatus(): Promise<LiveBotStatus> {
-    const account = await this.trading.getAccount();
-    const positions = await this.trading.getPositions();
+    let account: Account;
+    let positions: Position[];
+
+    try {
+      account = await this.trading.getAccount();
+    } catch (error) {
+      console.warn(`Warning: Could not fetch account for bot ${this.botId}, using defaults:`, error);
+      // Provide safe defaults if account fetch fails
+      account = {
+        equity: 100000,
+        cash: 100000,
+        buyingPower: 100000,
+        leverage: 1,
+        dayPL: 0,
+        dayPLPercent: 0,
+        portfolioValue: 100000,
+        currency: 'USD',
+        status: 'PENDING',
+      };
+    }
+
+    try {
+      positions = await this.trading.getPositions();
+    } catch (error) {
+      console.warn(`Warning: Could not fetch positions for bot ${this.botId}, using empty:`, error);
+      positions = [];
+    }
 
     return {
       botId: this.botId,

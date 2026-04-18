@@ -7,21 +7,35 @@ import { botManager, EquityCurvePoint } from '@/services/live-bot-monitor';
  */
 export async function GET(request: NextRequest) {
   try {
-    const bots = Array.from(botManager.getAllBots().entries());
+    const allBots = botManager.getAllBots();
+    console.log('[GET-BOTS] Total bots in manager:', allBots.size);
+    
+    const bots = Array.from(allBots.entries());
+    console.log('[GET-BOTS] Bot IDs:', bots.map(([id, _]) => id));
     
     const botStatuses = await Promise.all(
-      bots.map(async ([, bot]) => {
-        return await bot.getStatus();
+      bots.map(async ([botId, bot]) => {
+        try {
+          const status = await bot.getStatus();
+          console.log('[GET-BOTS] Retrieved status for:', botId);
+          return status;
+        } catch (error) {
+          console.error('[GET-BOTS] Error getting status for bot', botId, ':', error);
+          return null;
+        }
       })
     );
 
+    const validBots = botStatuses.filter(bot => bot !== null);
+    console.log('[GET-BOTS] Returning', validBots.length, 'valid bot statuses');
+
     return NextResponse.json({
       success: true,
-      bots: botStatuses,
-      count: bots.length,
+      bots: validBots,
+      count: validBots.length,
     });
   } catch (error: any) {
-    console.error('Error listing bots:', error);
+    console.error('[GET-BOTS] Error listing bots:', error);
     return NextResponse.json(
       { error: 'Failed to list bots', details: error.message },
       { status: 500 }
