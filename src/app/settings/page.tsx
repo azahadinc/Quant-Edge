@@ -36,6 +36,8 @@ export default function SettingsPage() {
   
   const [isSaving, setIsSaving] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [isTestingAlpaca, setIsTestingAlpaca] = useState(false)
+  const [alpacaTestResult, setAlpacaTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
   // Profile State
   const profileRef = useMemoFirebase(() => {
@@ -56,8 +58,12 @@ export default function SettingsPage() {
   const [propFirmMode, setPropFirmMode] = useState(true)
   const [accountSize, setAccountSize] = useState("100000")
   const [challengePhase, setChallengePhase] = useState("phase1")
-  const [alpacaKey, setAlpacaKey] = useState("************************")
-  const [alpacaSecret, setAlpacaSecret] = useState("********************************")
+  const [alpacaKey, setAlpacaKey] = useState("")
+  const [alpacaSecret, setAlpacaSecret] = useState("")
+
+  const hasAlpacaCredentials = Boolean(
+    alpacaKey && alpacaSecret && alpacaKey !== '************************' && alpacaSecret !== '********************************'
+  )
 
   // Sync form with Firestore data
   useEffect(() => {
@@ -71,8 +77,14 @@ export default function SettingsPage() {
       setPropFirmMode(profileData.propFirmMode !== undefined ? profileData.propFirmMode : true)
       setAccountSize(profileData.accountSize || "100000")
       setChallengePhase(profileData.challengePhase || "phase1")
-      if (profileData.alpacaKey) setAlpacaKey(profileData.alpacaKey)
-      if (profileData.alpacaSecret) setAlpacaSecret(profileData.alpacaSecret)
+      const storedKey = (profileData.alpacaKey || profileData.alpacaKeyId) && !((profileData.alpacaKey || profileData.alpacaKeyId).includes('*'))
+        ? (profileData.alpacaKey || profileData.alpacaKeyId)
+        : ''
+      const storedSecret = (profileData.alpacaSecret || profileData.alpacaSecretKey) && !((profileData.alpacaSecret || profileData.alpacaSecretKey).includes('*'))
+        ? (profileData.alpacaSecret || profileData.alpacaSecretKey)
+        : ''
+      setAlpacaKey(storedKey)
+      setAlpacaSecret(storedSecret)
     } else if (user) {
         setProfileForm(prev => ({ ...prev, username: user.email?.split('@')[0] || '' }))
     }
@@ -106,7 +118,9 @@ export default function SettingsPage() {
       accountSize,
       challengePhase,
       alpacaKey,
+      alpacaKeyId: alpacaKey,
       alpacaSecret,
+      alpacaSecretKey: alpacaSecret,
       id: user.uid,
       email: user.email,
       updatedAt: serverTimestamp(),
@@ -121,6 +135,38 @@ export default function SettingsPage() {
         description: "Your terminal profile and compliance rules have been updated."
       })
     }, 800)
+  }
+
+  const handleTestAlpacaConnection = async () => {
+    if (!alpacaKey || !alpacaSecret) {
+      toast({ variant: 'destructive', title: 'Missing Alpaca Credentials', description: 'Please enter both the Alpaca API key and secret.' })
+      return
+    }
+
+    setIsTestingAlpaca(true)
+    setAlpacaTestResult(null)
+
+    try {
+      const response = await fetch('/api/alpaca/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyId: alpacaKey, secretKey: alpacaSecret, paper: true }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to verify Alpaca connection')
+      }
+
+      setAlpacaTestResult({ success: true, message: `Alpaca connected (${result.status})` })
+      toast({ title: 'Alpaca Verified', description: `Connection successful: ${result.status}` })
+    } catch (error: any) {
+      setAlpacaTestResult({ success: false, message: error.message || 'Connection failed' })
+      toast({ variant: 'destructive', title: 'Alpaca Connection Failed', description: error.message || 'Unable to connect' })
+    } finally {
+      setIsTestingAlpaca(false)
+    }
   }
 
   const handleResetAccount = () => {
@@ -357,13 +403,16 @@ export default function SettingsPage() {
                     <Landmark className="w-5 h-5 text-blue-400" />
                     <div className="font-bold">Alpaca Markets</div>
                   </div>
-                  <Badge className="bg-green-500">CONNECTED</Badge>
+                  <Badge className={hasAlpacaCredentials ? 'bg-green-500' : 'bg-muted'}>
+                    {hasAlpacaCredentials ? 'CONNECTED' : 'NOT CONNECTED'}
+                  </Badge>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <Label className="text-[10px] uppercase text-muted-foreground">Key ID</Label>
                     <Input 
                       type="text" 
+                      placeholder="Enter Alpaca API Key ID"
                       value={alpacaKey} 
                       onChange={(e) => setAlpacaKey(e.target.value)} 
                       className="h-9 font-mono text-xs" 
@@ -373,11 +422,38 @@ export default function SettingsPage() {
                     <Label className="text-[10px] uppercase text-muted-foreground">Secret Key</Label>
                     <Input 
                       type="password" 
+                      placeholder="Enter Alpaca API Secret"
                       value={alpacaSecret} 
                       onChange={(e) => setAlpacaSecret(e.target.value)} 
                       className="h-9 font-mono text-xs" 
                     />
                   </div>
+                </div>
+                <div className="pt-3 space-y-3">
+                  <div className="flex gap-2">
+                    <Button 
+                      className="flex-1 gap-2 bg-primary"
+                      onClick={handleSaveProfile}
+                      disabled={isSaving || isProfileLoading}
+                    >
+                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {isSaving ? 'Saving...' : 'Save API Keys'}
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      className="flex-1 gap-2"
+                      onClick={handleTestAlpacaConnection}
+                      disabled={isTestingAlpaca || !alpacaKey || !alpacaSecret}
+                    >
+                      {isTestingAlpaca ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                      {isTestingAlpaca ? 'Testing...' : 'Test Connection'}
+                    </Button>
+                  </div>
+                  {alpacaTestResult ? (
+                    <div className={`text-sm p-2 rounded ${alpacaTestResult.success ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                      {alpacaTestResult.success ? '✓' : '✕'} {alpacaTestResult.message}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

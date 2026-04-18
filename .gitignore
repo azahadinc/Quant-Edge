@@ -37,9 +37,72 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# genkit
 .genkit/*
+
+# environment variables
 .env*
+!.env.example
 
 # firebase
 firebase-debug.log
 firestore-debug.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+build/lib/
+build/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pot
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+ENV/
+env/
+
+# Explicitly include src/lib (source code, not Python venv)
+!src/lib/
+
+
+# Jesse-specific
+src/jesse/logs/*
+src/jesse/data/*
+!src/jesse/logs/.gitkeep
+!src/jesse/data/.gitkeep
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env.local
+.env.*.local
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+.cache

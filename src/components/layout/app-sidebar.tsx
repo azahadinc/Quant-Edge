@@ -16,8 +16,10 @@ import {
   LogOut,
   User,
   BrainCircuit,
-  ClipboardList
+  ClipboardList,
+  ChevronRight
 } from "lucide-react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { signOut } from "firebase/auth"
@@ -35,7 +37,11 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
   useSidebar,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
 } from "@/components/ui/sidebar"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 const mainNav = [
@@ -44,9 +50,13 @@ const mainNav = [
   { title: "Screener", icon: Search, url: "/screener" },
   { title: "Editor", icon: Code2, url: "/editor" },
   { title: "Backtest", icon: HistoryIcon, url: "/backtest" },
-  { title: "Live Trading", icon: Play, url: "/live" },
   { title: "History", icon: ClipboardList, url: "/history" },
   { title: "Market Map", icon: MapIcon, url: "/heatmap" },
+]
+
+const liveTradeSubItems = [
+  { title: "Alpaca Paper Trading", url: "/live/alpaca" },
+  { title: "Binance Sim Trading", url: "/live/binance" },
 ]
 
 const analysisNav = [
@@ -83,8 +93,8 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-r border-border bg-card">
       <SidebarHeader className="h-16 flex items-center px-4 border-b border-border">
         <Link href="/" className="flex items-center gap-3" onClick={handleLinkClick}>
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
-            <BarChart3 className="text-white w-5 h-5" />
+          <div className="relative w-8 h-8 rounded overflow-hidden bg-card shadow-sm">
+            <Image src="/favicon.png" alt="QuantEdge logo" fill className="object-cover" />
           </div>
           <span className="font-headline font-bold text-xl group-data-[collapsible=icon]:hidden">
             QuantEdge
@@ -110,6 +120,34 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {/* Live Trading with submenu */}
+              <Collapsible defaultOpen={pathname.startsWith('/live')} asChild>
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton tooltip="Live Trading" isActive={pathname.startsWith('/live')}>
+                      <Play />
+                      <span>Live Trading</span>
+                      <ChevronRight className="ml-auto transition-transform group-data-[state=open]:rotate-90" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      {liveTradeSubItems.map((item) => (
+                        <SidebarMenuSubItem key={item.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            isActive={pathname === item.url}
+                          >
+                            <Link href={item.url} onClick={handleLinkClick}>
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ))}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
