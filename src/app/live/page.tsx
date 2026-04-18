@@ -1,899 +1,164 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import React from 'react'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger 
-} from "@/components/ui/dialog"
-import { 
-  Play, Activity, Zap, 
-  ArrowUpRight, ArrowDownRight,
-  Terminal, Loader2, Calculator,
-  Clock, Globe,
-  BarChart4, ArrowRightLeft, Coins, Landmark,
-  Wallet, Sparkles, TrendingUp, ShieldCheck
-} from "lucide-react"
-import { 
-  AreaChart, Area, ResponsiveContainer, YAxis, XAxis, Tooltip, CartesianGrid
-} from 'recharts'
-import { useToast } from "@/hooks/use-toast"
-import { useFirestore, useUser, useCollection, useDoc, useMemoFirebase } from '@/firebase'
-import { collection, doc, serverTimestamp, query, where } from 'firebase/firestore'
-import { setDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase/non-blocking-updates'
-import { INITIAL_MARKET_DATA } from '@/lib/market-data'
-import { testAlpacaConnection, placeAlpacaOrder, closeAlpacaPosition, getAlpacaAccountDetails, getAlpacaPositions } from '@/app/actions/alpaca-actions'
+import { ArrowRight, TrendingUp, Building2, Zap } from "lucide-react"
+import { ActiveBotsPanel } from "@/components/ActiveBotsPanel"
 
-function RuntimeDisplay({ entryTime }: { entryTime: any }) {
-  const [runtime, setRuntime] = useState("00:00:00")
-
-  useEffect(() => {
-    if (!entryTime) return
-    
-    const interval = setInterval(() => {
-      const start = entryTime.toDate ? entryTime.toDate().getTime() : new Date().getTime()
-      const diff = Math.floor((new Date().getTime() - start) / 1000)
-      
-      const h = Math.floor(diff / 3600).toString().padStart(2, '0')
-      const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0')
-      const s = (diff % 60).toString().padStart(2, '0')
-      
-      setRuntime(`${h}:${m}:${s}`)
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [entryTime])
+export default function LiveTradingHome() {
+  const router = useRouter()
 
   return (
-    <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground uppercase">
-      <Clock className="w-3 h-3 text-primary" />
-      Runtime: {runtime}
-    </div>
-  )
-}
-
-export default function LiveTradingPage() {
-  const db = useFirestore()
-  const { user } = useUser()
-  const { toast } = useToast()
-  
-  const [isDeploying, setIsDeploying] = useState(false)
-  const [isConfigOpen, setIsConfigOpen] = useState(false)
-  const [isTransferOpen, setIsTransferOpen] = useState(false)
-  const [transferAmount, setTransferAmount] = useState("5000")
-  const [alpacaAccount, setAlpacaAccount] = useState<any>(null)
-  const [alpacaPositions, setAlpacaPositions] = useState<any[]>([])
-  const [isLoadingAlpaca, setIsLoadingAlpaca] = useState(false)
-  const [isLoadingAlpacaPositions, setIsLoadingAlpacaPositions] = useState(false)
-
-  const [logs, setLogs] = useState<string[]>([
-    "[SYSTEM] Terminal Initialized.",
-    "[API] Exchange Public Feeds connected.",
-    "[AWS] Worker v2.4 initialized and awaiting instructions."
-  ])
-  
-  const [calcRiskPct, setCalcRiskPct] = useState("1")
-  const [calcStopLoss, setCalcStopLoss] = useState("500")
-  const [calcResult, setCalcResult] = useState<{size: string, margin: string} | null>(null)
-
-  const [config, setConfig] = useState({
-    strategyId: '',
-    broker: 'binance',
-    symbol: 'BTC/USDT',
-    amount: '5000',
-    worker: 'ec2-01',
-    timeframe: '1h'
-  })
-
-  const logEndRef = useRef<HTMLDivElement>(null)
-
-  const profileRef = useMemoFirebase(() => {
-    if (!db || !user) return null
-    return doc(db, 'users', user.uid)
-  }, [db, user])
-  const { data: profile } = useDoc<any>(profileRef)
-
-  const strategiesQuery = useMemoFirebase(() => {
-    if (!db || !user) return null
-    return collection(db, 'users', user.uid, 'strategies')
-  }, [db, user])
-  const { data: savedStrategies } = useCollection<any>(strategiesQuery)
-
-  const positionsQuery = useMemoFirebase(() => {
-    if (!db || !user) return null
-    return query(
-      collection(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions'),
-      where('status', '==', 'open')
-    )
-  }, [db, user])
-  const { data: persistentPositions, isLoading: isLoadingPositions } = useCollection<any>(positionsQuery)
-
-  const [livePrices, setLivePrices] = useState<Record<string, { price: number, pnl: number, profitUsd: number, tradeCount: number, chart: any[] }>>({})
-
-  useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [logs])
-
-  // Fetch Alpaca details if keys exist
-  useEffect(() => {
-    const fetchAlpaca = async () => {
-      if (profile?.alpacaKey && profile?.alpacaSecret && profile?.alpacaKey !== '************************') {
-        setIsLoadingAlpaca(true)
-        const res = await getAlpacaAccountDetails({
-          keyId: profile.alpacaKey,
-          secretKey: profile.alpacaSecret,
-          paper: true
-        })
-        if (res.success) {
-          setAlpacaAccount(res)
-        } else {
-          setAlpacaAccount(null)
-        }
-        setIsLoadingAlpaca(false)
-
-        setIsLoadingAlpacaPositions(true)
-        const positionsRes = await getAlpacaPositions({
-          keyId: profile.alpacaKey,
-          secretKey: profile.alpacaSecret,
-          paper: true
-        })
-        if (positionsRes.success) {
-          setAlpacaPositions(positionsRes.positions)
-        } else {
-          setAlpacaPositions([])
-        }
-        setIsLoadingAlpacaPositions(false)
-      } else {
-        setAlpacaAccount(null)
-        setAlpacaPositions([])
-      }
-    }
-    fetchAlpaca()
-  }, [profile])
-
-  useEffect(() => {
-    if (!persistentPositions || persistentPositions.length === 0) {
-      setLivePrices({})
-      return
-    }
-
-    const fetchPrices = async () => {
-      try {
-        const response = await fetch('https://api.binance.com/api/v3/ticker/price', { cache: 'no-store' });
-        if (!response.ok) throw new Error('API unstable');
-        const tickerData = await response.json();
-
-        setLivePrices(prev => {
-          const next = { ...prev }
-          persistentPositions.forEach(pos => {
-            const apiSymbol = pos.instrumentId.replace('/', '');
-            const apiMatch = Array.isArray(tickerData) ? tickerData.find((t: any) => t.symbol === apiSymbol) : null;
-            
-            let currentPrice = (prev[pos.id]?.price || pos.entryPrice);
-            
-            if (apiMatch) {
-              currentPrice = parseFloat(apiMatch.price);
-            } else {
-              const baseData = INITIAL_MARKET_DATA.find(i => i.symbol === pos.instrumentId)
-              const basePrice = baseData?.price || 64000
-              currentPrice = currentPrice + (Math.random() - 0.5) * (basePrice * 0.0005)
-            }
-
-            if (!next[pos.id]) {
-              next[pos.id] = { 
-                price: currentPrice, 
-                pnl: 0, 
-                profitUsd: 0,
-                tradeCount: pos.tradeCount || 1,
-                chart: Array.from({length: 20}, (_, i) => ({ val: currentPrice, t: i })) 
-              }
-            }
-            
-            const currentData = next[pos.id]
-            const diff = currentPrice - pos.entryPrice
-            const pnl = (diff / pos.entryPrice) * 100 * (pos.side === 'LONG' ? 1 : -1)
-            const profitUsd = diff * (pos.quantity || 1) * (pos.side === 'LONG' ? 1 : -1)
-            
-            next[pos.id] = {
-              ...currentData,
-              price: currentPrice,
-              pnl: pnl,
-              profitUsd: profitUsd,
-              chart: [...currentData.chart.slice(-24), { val: currentPrice, t: currentData.chart.length }]
-            }
-          })
-          return next
-        })
-      } catch (e) {
-        setLivePrices(prev => {
-          const next = { ...prev }
-          persistentPositions?.forEach(pos => {
-            let currentPrice = (prev[pos.id]?.price || pos.entryPrice);
-            const baseData = INITIAL_MARKET_DATA.find(i => i.symbol === pos.instrumentId)
-            const basePrice = baseData?.price || 64000
-            currentPrice = currentPrice + (Math.random() - 0.5) * (basePrice * 0.0005)
-
-            if (!next[pos.id]) {
-              next[pos.id] = { 
-                price: currentPrice, 
-                pnl: 0, 
-                profitUsd: 0,
-                tradeCount: pos.tradeCount || 1,
-                chart: Array.from({length: 20}, (_, i) => ({ val: currentPrice, t: i })) 
-              }
-            }
-            const currentData = next[pos.id]
-            const diff = currentPrice - pos.entryPrice
-            const pnl = (diff / pos.entryPrice) * 100 * (pos.side === 'LONG' ? 1 : -1)
-            const profitUsd = diff * (pos.quantity || 1) * (pos.side === 'LONG' ? 1 : -1)
-            next[pos.id] = {
-              ...currentData,
-              price: currentPrice,
-              pnl: pnl,
-              profitUsd: profitUsd,
-              chart: [...currentData.chart.slice(-24), { val: currentPrice, t: currentData.chart.length }]
-            }
-          })
-          return next
-        })
-      }
-    }
-
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 5000);
-    return () => clearInterval(interval)
-  }, [persistentPositions])
-
-  const sessionMetrics = useMemo(() => {
-    if (!persistentPositions) return { totalEquity: 0, totalProfit: 0, invested: 0 }
-    return persistentPositions.reduce((acc, pos) => {
-      const sim = livePrices[pos.id] || { profitUsd: 0 }
-      const invested = pos.investAmt || 0
-      return {
-        totalEquity: acc.totalEquity + invested + sim.profitUsd,
-        totalProfit: acc.totalProfit + sim.profitUsd,
-        invested: acc.invested + invested
-      }
-    }, { totalEquity: 0, totalProfit: 0, invested: 0 })
-  }, [persistentPositions, livePrices])
-
-  const handleTransfer = async () => {
-    if (!db || !user || !profile) return
-    const amount = parseFloat(transferAmount)
-    if (isNaN(amount) || amount <= 0 || amount > profile.vaultBalance) {
-      toast({ variant: "destructive", title: "Invalid Amount", description: "Insufficient vault balance." })
-      return
-    }
-
-    const newVault = profile.vaultBalance - amount
-    const newTrading = (profile.tradingBalance || 0) + amount
-
-    const updatedProfile = {
-      vaultBalance: newVault,
-      tradingBalance: newTrading,
-      totalBalance: newVault + newTrading,
-      updatedAt: serverTimestamp(),
-    }
-
-    try {
-      await setDocumentNonBlocking(doc(db, 'users', user.uid), updatedProfile, { merge: true })
-      setIsTransferOpen(false)
-      toast({ title: "Transfer Successful", description: `$${amount.toLocaleString()} moved to Trading account.` })
-    } catch (e) {
-      toast({ variant: "destructive", title: "Transfer Failed" })
-    }
-  }
-
-  const deployBot = async () => {
-    if (!config.strategyId || !user || !db || !profile) return
-    const investAmt = parseFloat(config.amount)
-    
-    if (investAmt > (profile.tradingBalance || 0)) {
-      toast({ variant: "destructive", title: "Deployment Blocked", description: "Insufficient trading balance." })
-      return
-    }
-
-    setIsConfigOpen(false)
-    setIsDeploying(true)
-    
-    setLogs(prev => [...prev, 
-      `[SYSTEM] Booting Compliance Engine...`, 
-      `[AWS] Transmitting deployment intent to ${config.worker}...`,
-    ])
-
-    const startPrice = INITIAL_MARKET_DATA.find(i => i.symbol === config.symbol)?.price || 180;
-    const calculatedQty = parseFloat((investAmt / startPrice).toFixed(6));
-
-    let alpacaOrderId = null;
-
-    if (config.broker === 'alpaca') {
-      if (profile.alpacaKey && profile.alpacaSecret && profile.alpacaKey !== '************************') {
-        setLogs(prev => [...prev, `[SDK] Authenticating with Alpaca API...`]);
-        const conn = await testAlpacaConnection({ keyId: profile.alpacaKey, secretKey: profile.alpacaSecret });
-        
-        if (conn.success) {
-          setLogs(prev => [...prev, `[SUCCESS] Alpaca Verified. Placing Market Order for ${calculatedQty} units...`]);
-          const orderRes = await placeAlpacaOrder({
-            config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret, paper: true },
-            symbol: config.symbol,
-            qty: calculatedQty,
-            side: 'buy',
-            type: 'market'
-          });
-
-          if (orderRes.success) {
-            alpacaOrderId = orderRes.orderId;
-            setLogs(prev => [...prev, `[SUCCESS] Alpaca Order accepted. Status: ${orderRes.status}. ID: ${alpacaOrderId}`]);
-          } else {
-            setLogs(prev => [...prev, `[ERROR] Alpaca Order Failed: ${orderRes.error}`]);
-            toast({ variant: "destructive", title: "Alpaca Order Rejected", description: orderRes.error });
-            setIsDeploying(false);
-            return;
-          }
-        } else {
-          setLogs(prev => [...prev, `[ERROR] Alpaca Handshake Failed: ${conn.error}. Deployment aborted.`]);
-          toast({ variant: "destructive", title: "Alpaca Auth Error", description: conn.error });
-          setIsDeploying(false);
-          return;
-        }
-      } else {
-        setLogs(prev => [...prev, `[WARN] Alpaca keys missing. Strategy will execute in virtual mode only.`]);
-      }
-    }
-    
-    setLogs(prev => [...prev, 
-      `[AUTH] Authenticating with ${config.broker.toUpperCase()}...`, 
-      `[SUCCESS] Worker assigned. Real-time execution loop started.`
-    ])
-    
-    const strategy = savedStrategies?.find((s: any) => s.id === config.strategyId)
-    
-    const positionId = doc(collection(db, 'temp')).id
-    const positionData = {
-      id: positionId,
-      instrumentId: config.symbol,
-      strategyId: config.strategyId,
-      strategyName: strategy?.name || "Bot",
-      broker: config.broker,
-      side: 'LONG',
-      entryPrice: startPrice,
-      quantity: calculatedQty,
-      status: 'open',
-      entryTime: serverTimestamp(),
-      userId: user.uid,
-      tradingAccountId: 'default',
-      infrastructure: 'aws-ec2-us-east-1',
-      workerId: config.worker,
-      timeframe: config.timeframe,
-      tradeCount: 1,
-      investAmt: investAmt,
-      alpacaOrderId
-    }
-
-    try {
-      await setDocumentNonBlocking(doc(db, 'users', user.uid), {
-        tradingBalance: profile.tradingBalance - investAmt,
-        updatedAt: serverTimestamp()
-      }, { merge: true })
-
-      await setDocumentNonBlocking(
-        doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', positionId),
-        positionData,
-        { merge: true }
-      )
-      toast({ title: "Remote Bot Deployed", description: `Strategy logic now executing on ${config.worker} via ${config.broker.toUpperCase()}.` })
-    } catch (e) {
-      toast({ variant: "destructive", title: "Deployment Failed" })
-    } finally {
-      setIsDeploying(false)
-    }
-  }
-
-  const closePosition = async (posId: string) => {
-    if (!user || !db || !profile) return
-    try {
-      const pos = persistentPositions?.find((p: any) => p.id === posId)
-      if (!pos) return
-
-      setLogs(prev => [...prev, `[AWS] Kill signal sent to worker for ${posId}.`]);
-
-      if (pos.broker === 'alpaca' && profile.alpacaKey && profile.alpacaSecret && profile.alpacaKey !== '************************') {
-        setLogs(prev => [...prev, `[SDK] Requesting Alpaca position liquidation for ${pos.instrumentId}...`]);
-        const closeRes = await closeAlpacaPosition({
-          config: { keyId: profile.alpacaKey, secretKey: profile.alpacaSecret, paper: true },
-          symbol: pos.instrumentId
-        });
-        if (closeRes.success) {
-          setLogs(prev => [...prev, `[SUCCESS] Alpaca position closed.`]);
-        } else {
-          setLogs(prev => [...prev, `[WARN] Alpaca close failed: ${closeRes.error}. Manual reconciliation may be needed.`]);
-        }
-      }
-
-      const sim = livePrices[posId] || { price: pos.entryPrice, pnl: 0, profitUsd: 0, tradeCount: 1 }
-      const originalInvestment = pos.investAmt || 0
-      const returnAmt = originalInvestment + sim.profitUsd
-
-      const tradeData = {
-        id: doc(collection(db, 'temp')).id,
-        tradingAccountId: 'default',
-        instrumentId: pos.instrumentId,
-        strategyId: pos.strategyId,
-        strategyName: pos.strategyName,
-        side: pos.side === 'LONG' ? 'SELL' : 'BUY',
-        executedPrice: sim.price,
-        executedQuantity: pos.quantity,
-        pnl: sim.pnl,
-        profitUsd: sim.profitUsd,
-        timestamp: serverTimestamp(),
-        userId: user.uid,
-        type: 'LIVE_EXECUTION',
-        broker: pos.broker || 'binance'
-      }
-      
-      await addDocumentNonBlocking(collection(db, 'users', user.uid, 'tradingAccounts', 'default', 'trades'), tradeData)
-
-      const newTradingBalance = profile.tradingBalance + returnAmt
-      await setDocumentNonBlocking(doc(db, 'users', user.uid), {
-        tradingBalance: newTradingBalance,
-        totalBalance: profile.vaultBalance + newTradingBalance,
-        updatedAt: serverTimestamp()
-      }, { merge: true })
-
-      await deleteDocumentNonBlocking(doc(db, 'users', user.uid, 'tradingAccounts', 'default', 'positions', posId))
-      
-      setLogs(prev => [...prev, `[SUCCESS] Position closed. Capital returned to balance.`])
-      toast({ title: "Position Closed", description: `$${returnAmt.toLocaleString()} returned to Trading Balance.` })
-    } catch (e) {
-      toast({ variant: "destructive", title: "Error closing position" })
-    }
-  }
-
-  const calculateRisk = () => {
-    const riskAmt = (profile?.tradingBalance || 0) * (parseFloat(calcRiskPct) / 100)
-    const stopLossPips = parseFloat(calcStopLoss)
-    const lotSize = riskAmt / stopLossPips
-    setCalcResult({ size: lotSize.toFixed(2), margin: (lotSize * 1000).toLocaleString() })
-  }
-
-  return (
-    <div className="flex-1 flex flex-col p-4 lg:p-6 space-y-6 overflow-auto bg-[#080A0C]">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl lg:text-3xl font-bold tracking-tight font-headline flex flex-wrap items-center gap-2">
-            Execution Console <Badge className="bg-primary/20 text-primary border-primary/30 uppercase text-[9px] lg:text-[10px]">LIVE EXCHANGE DATA</Badge>
-          </h1>
-          <p className="text-xs lg:text-sm text-muted-foreground mt-1">Monitoring your institutional AWS EC2 workers in real-time.</p>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="flex-1 sm:flex-none gap-2 text-xs h-9">
-                <Landmark className="w-4 h-4" /> Transfer
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="bg-card border-border sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Allocate Trading Capital</DialogTitle>
-                <DialogDescription>Move funds from your Vault into the active Trading balance.</DialogDescription>
-              </DialogHeader>
-              <div className="py-4 space-y-4">
-                <div className="flex justify-between text-xs font-medium">
-                  <span className="text-muted-foreground">Vault Balance:</span>
-                  <span className="text-white">${profile?.vaultBalance?.toLocaleString() || '0.00'}</span>
-                </div>
-                <div className="space-y-2">
-                  <Label>Amount to Transfer</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
-                    <Input value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} className="pl-7 bg-background" type="number" />
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button onClick={handleTransfer} className="w-full bg-primary">Confirm Transfer</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
-            <DialogTrigger asChild>
-              <Button className="flex-1 sm:flex-none gap-2 bg-green-600 hover:bg-green-700 text-xs h-9">
-                <Play className="w-4 h-4" /> Deploy to AWS
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="bg-card border-border sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Deploy Compliant Strategy</DialogTitle>
-                <DialogDescription>Logic executes on secure AWS worker.</DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="flex justify-between text-xs px-2 py-1 rounded bg-accent/10 border border-accent/20">
-                  <span className="text-accent font-bold">Trading Balance:</span>
-                  <span className="text-white font-mono">${profile?.tradingBalance?.toLocaleString() || '0.00'}</span>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-xs">Exchange</Label>
-                  <div className="col-span-3">
-                    <Select value={config.broker} onValueChange={(v) => setConfig({...config, broker: v})}>
-                      <SelectTrigger className="h-9 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="binance" className="text-xs">Binance (Crypto)</SelectItem>
-                        <SelectItem value="alpaca" className="text-xs">Alpaca (Stocks/Paper)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-xs">Strategy</Label>
-                  <div className="col-span-3">
-                    <Select value={config.strategyId} onValueChange={(v) => setConfig({...config, strategyId: v})}>
-                      <SelectTrigger className="h-9 text-xs bg-background"><SelectValue placeholder="Select Strategy" /></SelectTrigger>
-                      <SelectContent>
-                        {savedStrategies?.map((s: any) => <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-xs">Symbol</Label>
-                  <Input value={config.symbol} onChange={(e) => setConfig({...config, symbol: e.target.value})} className="col-span-3 h-9 text-xs bg-background" />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-xs">Invest</Label>
-                  <div className="col-span-3 relative">
-                     <span className="absolute left-3 top-2.5 text-muted-foreground text-xs">$</span>
-                     <Input value={config.amount} onChange={(e) => setConfig({...config, amount: e.target.value})} className="pl-6 h-9 text-xs bg-background" type="number" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-xs">Worker</Label>
-                  <Select value={config.worker} onValueChange={(v) => setConfig({...config, worker: v})}>
-                      <SelectTrigger className="col-span-3 h-9 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ec2-01" className="text-xs">AWS EC2 (us-east-1)</SelectItem>
-                        <SelectItem value="ec2-02" className="text-xs">AWS EC2 (eu-west-1)</SelectItem>
-                      </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                 <Button onClick={deployBot} className="w-full bg-primary h-10" disabled={!config.strategyId || isDeploying}>
-                   {isDeploying ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                   Start Remote Execution
-                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+    <div className="flex-1 flex flex-col p-4 lg:p-6 space-y-8 overflow-auto">
+      <div className="space-y-2">
+        <h1 className="text-3xl lg:text-4xl font-bold tracking-tight font-headline">Live Trading</h1>
+        <p className="text-muted-foreground">Choose a trading platform to begin paper trading with real market data</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1 space-y-6">
-          {alpacaAccount && (
-            <Card className="bg-blue-500/10 border-blue-500/20 animate-in fade-in slide-in-from-left-4 duration-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-[10px] font-bold uppercase text-blue-400 flex items-center justify-between">
-                  Alpaca Paper Account
-                  <Badge variant="outline" className="text-[8px] bg-green-500/10 text-green-500 border-none h-4 uppercase">Connected</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-1">
-                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Buying Power</div>
-                  <div className="text-xl font-bold font-mono text-white">${parseFloat(alpacaAccount.buyingPower).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Alpaca Card */}
+        <Card className="border-2 border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 transition-all cursor-pointer h-full flex flex-col"
+          onClick={() => router.push('/live/alpaca')}>
+          <CardHeader>
+            <div className="flex items-start justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-blue-500" />
+                  <CardTitle>Alpaca Paper Trading</CardTitle>
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
-                  <div className="space-y-0.5">
-                    <div className="text-[8px] text-muted-foreground uppercase font-bold">Cash</div>
-                    <div className="text-[11px] font-mono font-bold">${parseFloat(alpacaAccount.cash).toLocaleString()}</div>
-                  </div>
-                  <div className="space-y-0.5 text-right">
-                    <div className="text-[8px] text-muted-foreground uppercase font-bold">Equity</div>
-                    <div className="text-[11px] font-mono font-bold">${parseFloat(alpacaAccount.equity).toLocaleString()}</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {alpacaAccount && (
-            <Card className="bg-card/20 border-border animate-in fade-in slide-in-from-left-4 duration-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-[10px] font-bold uppercase text-muted-foreground flex items-center justify-between">
-                  Open Alpaca Positions
-                  <Badge variant="outline" className="text-[8px] bg-primary/10 text-primary border-none h-4 uppercase">Paper</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {isLoadingAlpacaPositions ? (
-                  <div className="text-[10px] text-muted-foreground">Loading positions...</div>
-                ) : alpacaPositions.length > 0 ? (
-                  <div className="space-y-3">
-                    {alpacaPositions.map((position) => (
-                      <div key={position.symbol} className="rounded-xl border border-white/10 p-3 bg-[#0F1317]">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-sm font-semibold">{position.symbol}</div>
-                          <div className={`text-[10px] uppercase font-bold ${position.side === 'long' ? 'text-emerald-400' : 'text-rose-400'}`}>{position.side}</div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground mt-2">
-                          <div>Qty: {position.qty.toFixed(4)}</div>
-                          <div>Price: ${position.avgEntryPrice.toFixed(2)}</div>
-                          <div>Unrealized P/L: ${position.unrealizedPl.toFixed(2)}</div>
-                          <div>Change: {position.unrealizedPlPc.toFixed(2)}%</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-[10px] text-muted-foreground">No open Alpaca positions found.</div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          <Card className="bg-primary/10 border-primary/20">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-[10px] font-bold uppercase text-primary flex items-center justify-between">
-                Live Session Equity
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-               <div className="text-2xl font-bold font-mono text-white tracking-tighter">
-                 ${sessionMetrics.totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-               </div>
-               <div className="flex items-center gap-2">
-                  <div className={`text-[10px] font-bold flex items-center gap-1 ${sessionMetrics.totalProfit >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    <TrendingUp className={`w-3 h-3 ${sessionMetrics.totalProfit < 0 ? 'rotate-180' : ''}`} />
-                    {sessionMetrics.totalProfit >= 0 ? '+' : ''}${sessionMetrics.totalProfit.toFixed(2)}
-                  </div>
-                  <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-tighter">Floating PnL</span>
-               </div>
-               <div className="pt-2 border-t border-white/5">
-                  <div className="flex justify-between text-[9px] text-muted-foreground uppercase font-bold">
-                    <span>Invested Capital</span>
-                    <span>${sessionMetrics.invested.toLocaleString()}</span>
-                  </div>
-               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card/40 border-border/50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-2">
-                <Landmark className="w-3.5 h-3.5" /> Static Balances
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-               <div className="space-y-1">
-                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Vault (Total)</div>
-                  <div className="text-lg font-bold font-mono">${profile?.vaultBalance?.toLocaleString() || '0.00'}</div>
-               </div>
-               <div className="space-y-1">
-                  <div className="text-[9px] text-accent uppercase font-bold tracking-wider">Trading Account</div>
-                  <div className="text-xl font-bold font-mono text-accent">${profile?.tradingBalance?.toLocaleString() || '0.00'}</div>
-               </div>
-               <Button variant="outline" size="sm" className="w-full text-[10px] h-7 gap-2" onClick={() => setIsTransferOpen(true)}>
-                 <ArrowRightLeft className="w-3 h-3" /> Move Funds
-               </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-black/40 border-primary/10">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-[10px] font-bold uppercase flex items-center gap-2">
-                <Calculator className="w-3.5 h-3.5 text-primary" /> Risk Calculator
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label className="text-[9px] uppercase text-muted-foreground">Risk %</Label>
-                  <Input value={calcRiskPct} onChange={(e) => setCalcRiskPct(e.target.value)} className="h-7 text-[11px] px-2 bg-background" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[9px] uppercase text-muted-foreground">SL (Pips)</Label>
-                  <Input value={calcStopLoss} onChange={(e) => setCalcStopLoss(e.target.value)} className="h-7 text-[11px] px-2 bg-background" />
-                </div>
+                <CardDescription>Trade stocks, ETFs, and options with paper money</CardDescription>
               </div>
-              <Button size="sm" className="w-full h-7 text-[10px] uppercase font-bold" onClick={calculateRisk}>Calculate Size</Button>
-              {calcResult && (
-                <div className="p-2 rounded bg-primary/5 border border-primary/20 text-center">
-                  <div className="text-[9px] text-muted-foreground uppercase">Lot Size</div>
-                  <div className="text-base font-bold text-primary">{calcResult.size}</div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-3 space-y-6">
-          <Card className="border-border/50 bg-card/30 min-h-[400px]">
-            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-white/5 py-4 gap-4">
-               <CardTitle className="text-sm font-bold flex items-center gap-2">
-                 <Activity className="w-4 h-4 text-primary" /> Remote Deployments
-               </CardTitle>
-               <div className="flex flex-wrap items-center gap-3">
-                 <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase font-bold tracking-wider">
-                   <Globe className="w-3 h-3 text-primary/60" /> us-east-1
-                 </div>
-                 <Badge variant="outline" className="text-[9px] py-0 px-2 h-5">{persistentPositions?.length || 0} Worker(s)</Badge>
-               </div>
-            </CardHeader>
-            <CardContent className="p-0 overflow-x-hidden">
-              {isLoadingPositions ? (
-                <div className="h-48 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : !persistentPositions || persistentPositions.length === 0 ? (
-                <div className="h-64 flex flex-col items-center justify-center text-muted-foreground opacity-30 gap-3 px-4 text-center">
-                   <Zap className="w-10 h-10" />
-                   <p className="text-xs lg:text-sm font-medium">Infrastructure idle. No active AWS sessions detected.</p>
-                   <Button variant="ghost" size="sm" className="text-[10px] uppercase tracking-wider" onClick={() => setIsConfigOpen(true)}>Deploy First Worker</Button>
-                </div>
-              ) : (
-                <div className="divide-y divide-white/5">
-                  {persistentPositions.map((pos: any) => {
-                    const sim = livePrices[pos.id] || { price: pos.entryPrice, pnl: 0, profitUsd: 0, tradeCount: pos.tradeCount || 1, chart: [] }
-                    const currentEquity = (pos.investAmt || 0) + sim.profitUsd;
-                    const isProfit = sim.profitUsd >= 0;
-
-                    return (
-                      <div key={pos.id} className="p-4 lg:p-6 flex flex-col gap-6 hover:bg-white/[0.01] transition-all">
-                        <div className="w-full space-y-6">
-                          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                            <div className="flex items-center gap-3 w-full md:w-auto">
-                              <div className={`p-2 rounded-lg shrink-0 ${pos.side === 'LONG' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                                {pos.side === 'LONG' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-base lg:text-lg font-bold flex flex-wrap items-center gap-2 truncate">
-                                  {pos.instrumentId}
-                                  <Badge variant="outline" className="text-[8px] lg:text-[9px] uppercase h-4 px-1">{pos.strategyName}</Badge>
-                                  <Badge variant="secondary" className="text-[8px] lg:text-[9px] h-4 px-1 bg-primary/10 text-primary">{pos.timeframe || '1h'}</Badge>
-                                  <Badge variant="outline" className="text-[8px] h-4 px-1 bg-muted uppercase">{pos.broker || 'BINANCE'}</Badge>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                                  <RuntimeDisplay entryTime={pos.entryTime} />
-                                  <span className="text-[9px] text-primary/60 font-mono hidden xs:inline">ID:{pos.id.substring(0, 6)}</span>
-                                  <Badge variant="secondary" className="text-[8px] h-3.5 px-1 uppercase font-bold tracking-tighter">AWS_{pos.workerId}</Badge>
-                                </div>
-                              </div>
-                            </div>
-                            
-                            <div className="flex gap-4 lg:gap-8 items-center justify-between w-full md:w-auto border-t md:border-t-0 border-white/5 pt-4 md:pt-0">
-                               <div className="text-left md:text-right">
-                                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-tight">Net Profit</div>
-                                  <div className={`text-base lg:text-xl font-mono font-bold ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
-                                    {isProfit ? '+' : ''}${sim.profitUsd.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                                  </div>
-                               </div>
-                               <div className="text-left md:text-right">
-                                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-tight">PnL (%)</div>
-                                  <div className={`text-base lg:text-xl font-mono font-bold ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
-                                    {isProfit ? '+' : ''}{sim.pnl.toFixed(2)}%
-                                  </div>
-                               </div>
-                               <div className="text-right">
-                                  <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-tight">Execs</div>
-                                  <div className="text-base lg:text-xl font-mono font-bold flex items-center gap-1.5 justify-end">
-                                    <ArrowRightLeft className="w-3.5 h-3.5 text-primary" /> {sim.tradeCount}
-                                  </div>
-                               </div>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-3 rounded-lg bg-black/20 border border-white/5">
-                            <div>
-                              <div className="text-[8px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-                                <Coins className="w-2.5 h-2.5" /> Invested Equity
-                              </div>
-                              <div className="text-xs font-mono font-bold text-white">
-                                ${pos.investAmt?.toLocaleString(undefined, {minimumFractionDigits: 2})}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[8px] text-muted-foreground uppercase font-bold flex items-center gap-1">
-                                <Wallet className="w-2.5 h-2.5" /> Live Equity (New Bal)
-                              </div>
-                              <div className={`text-xs font-mono font-bold flex items-center gap-1 ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
-                                ${currentEquity.toLocaleString(undefined, {minimumFractionDigits: 2})}
-                                <TrendingUp className={`w-3 h-3 ${!isProfit ? 'rotate-180' : ''}`} />
-                              </div>
-                            </div>
-                            <div className="hidden sm:block">
-                              <div className="text-[8px] text-muted-foreground uppercase font-bold">Growth/Decay</div>
-                              <div className={`text-[10px] font-bold ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
-                                {isProfit ? 'INCREMENTING' : 'DECREMENTING'}
-                              </div>
-                            </div>
-                            <div className="hidden sm:block text-right">
-                              <div className="text-[8px] text-muted-foreground uppercase font-bold">Session Delta</div>
-                              <div className={`text-xs font-mono font-bold ${isProfit ? 'text-green-500' : 'text-red-500'}`}>
-                                {isProfit ? '+' : ''}${sim.profitUsd.toFixed(2)}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex flex-col sm:flex-row gap-2">
-                             <Button 
-                               variant="destructive" 
-                               size="sm" 
-                               className="flex-1 h-8 text-[10px] font-bold bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white uppercase tracking-wider"
-                               onClick={() => closePosition(pos.id)}
-                             >
-                               Kill Remote Process
-                             </Button>
-                             <Button variant="outline" size="sm" className="h-8 text-[10px] flex-1 uppercase tracking-wider font-bold" onClick={() => window.open('/debug', '_blank')}>
-                               View Server Logs
-                             </Button>
-                          </div>
-
-                          <div className="w-full space-y-3">
-                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center px-1 gap-1">
-                               <span className="text-[9px] text-muted-foreground uppercase font-bold flex items-center gap-1.5">
-                                 <BarChart4 className="w-3 h-3 text-primary" /> {pos.instrumentId} Performance Trend ({pos.timeframe || '1h'})
-                               </span>
-                               <span className="text-[10px] font-mono text-primary font-bold">
-                                 Mark: ${sim.price.toLocaleString(undefined, {minimumFractionDigits: 2})}
-                               </span>
-                             </div>
-                             <div className="w-full h-40 lg:h-48 bg-black/40 rounded-lg border border-white/5 overflow-hidden p-2">
-                               <ResponsiveContainer width="100%" height="100%">
-                                  <AreaChart data={sim.chart} margin={{ top: 10, right: 5, left: -25, bottom: 0 }}>
-                                    <defs>
-                                      <linearGradient id={`color-${pos.id}`} x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor={isProfit ? "#38D94F" : "#F03C3C"} stopOpacity={0.4}/>
-                                        <stop offset="95%" stopColor={isProfit ? "#38D94F" : "#F03C3C"} stopOpacity={0}/>
-                                      </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#2e2e2e" vertical={false} />
-                                    <XAxis dataKey="t" hide={false} axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#555' }} />
-                                    <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#555' }} orientation="right" />
-                                    <Tooltip 
-                                      contentStyle={{ backgroundColor: '#0D0F11', border: '1px solid #2e2e2e', borderRadius: '6px', fontSize: '9px' }}
-                                      itemStyle={{ color: isProfit ? '#38D94F' : '#F03C3C' }}
-                                      formatter={(value: number) => [`$${value.toLocaleString(undefined, {minimumFractionDigits: 2})}`, 'Price']}
-                                    />
-                                    <Area type="monotone" dataKey="val" stroke={isProfit ? "#38D94F" : "#F03C3C"} fillOpacity={1} fill={`url(#color-${pos.id})`} strokeWidth={2} isAnimationActive={false} />
-                                  </AreaChart>
-                               </ResponsiveContainer>
-                             </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="bg-black border-primary/20 overflow-hidden">
-            <div className="px-4 py-2 border-b border-white/5 bg-primary/5 flex items-center justify-between">
-                <span className="text-[9px] font-bold text-primary flex items-center gap-2 uppercase tracking-wider">
-                  <Terminal className="w-3 h-3" /> AWS_REMOTE_STDOUT_STREAM
-                </span>
-                <Badge variant="outline" className="text-[8px] bg-green-500/10 text-green-500 border-none px-1 h-4">LIVE FEED</Badge>
+              <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">Stocks</Badge>
             </div>
-            <CardContent className="p-4 h-32 overflow-y-auto font-mono text-[9px] space-y-1 text-blue-300">
-              {logs.map((l, i) => <div key={i}>{l}</div>)}
-              <div ref={logEndRef} />
-            </CardContent>
-          </Card>
-        </div>
+          </CardHeader>
+          <CardContent className="space-y-6 flex-1 flex flex-col">
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm">Features:</h3>
+              <ul className="text-sm text-muted-foreground space-y-2">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">✓</span>
+                  <span>Real-time market data for U.S. equities</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">✓</span>
+                  <span>$100,000 virtual starting capital</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">✓</span>
+                  <span>Commission-free trading in paper mode</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">✓</span>
+                  <span>Access to extended hours trading</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500 mt-1">✓</span>
+                  <span>Live position tracking with profit/loss</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-3 mt-auto">
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs">
+                <p className="font-semibold text-blue-500 mb-1">Requires API Keys:</p>
+                <p className="text-muted-foreground">You'll need to configure your Alpaca API credentials in Settings first.</p>
+              </div>
+              <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={(e) => {
+                e.stopPropagation()
+                router.push('/live/alpaca')
+              }}>
+                Start Paper Trading <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Binance Card */}
+        <Card className="border-2 border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 transition-all cursor-pointer h-full flex flex-col"
+          onClick={() => router.push('/live/binance')}>
+          <CardHeader>
+            <div className="flex items-start justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-orange-500" />
+                  <CardTitle>Binance Sim Trading</CardTitle>
+                </div>
+                <CardDescription>Trade crypto on Binance Testnet (simulated)</CardDescription>
+              </div>
+              <Badge className="bg-orange-500/20 text-orange-500 border-orange-500/30">Crypto</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6 flex-1 flex flex-col">
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm">Features:</h3>
+              <ul className="text-sm text-muted-foreground space-y-2">
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 mt-1">✓</span>
+                  <span>Testnet simulation with virtual USDT</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 mt-1">✓</span>
+                  <span>Trade 500+ cryptocurrency pairs</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 mt-1">✓</span>
+                  <span>Real Binance market prices (live)</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 mt-1">✓</span>
+                  <span>Practice risk management strategies</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-orange-500 mt-1">✓</span>
+                  <span>No risk of real capital loss</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="space-y-3 mt-auto">
+              <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 text-xs">
+                <p className="font-semibold text-orange-500 mb-1">Optional API Keys:</p>
+                <p className="text-muted-foreground">You can trade without API keys, or configure them in Settings for enhanced features.</p>
+              </div>
+              <Button className="w-full bg-orange-600 hover:bg-orange-700" onClick={(e) => {
+                e.stopPropagation()
+                router.push('/live/binance')
+              }}>
+                Start Sim Trading <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      <ActiveBotsPanel />
+
+      <Card className="bg-muted/50 border-muted">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="w-5 h-5" />
+            Choose Your Platform
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground space-y-4">
+          <p>
+            You can access both Alpaca Paper Trading and Binance Sim Trading from the sidebar. Click on <strong>"Live Trading"</strong> in the menu to expand the submenu and select your platform.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <h4 className="font-semibold text-foreground">Alpaca Paper Trading</h4>
+              <p>Best for trading stocks, ETFs, and practicing equity market strategies with realistic U.S. market hours.</p>
+            </div>
+            <div className="space-y-2">
+              <h4 className="font-semibold text-foreground">Binance Sim Trading</h4>
+              <p>Ideal for crypto traders who want to practice trading 24/7 with real market data on the Binance testnet.</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

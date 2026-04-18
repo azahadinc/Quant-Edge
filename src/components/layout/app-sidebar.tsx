@@ -16,7 +16,8 @@ import {
   LogOut,
   User,
   BrainCircuit,
-  ClipboardList
+  ClipboardList,
+  ChevronRight
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
@@ -36,7 +37,11 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
   useSidebar,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
 } from "@/components/ui/sidebar"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 
 const mainNav = [
@@ -45,9 +50,13 @@ const mainNav = [
   { title: "Screener", icon: Search, url: "/screener" },
   { title: "Editor", icon: Code2, url: "/editor" },
   { title: "Backtest", icon: HistoryIcon, url: "/backtest" },
-  { title: "Live Trading", icon: Play, url: "/live" },
   { title: "History", icon: ClipboardList, url: "/history" },
   { title: "Market Map", icon: MapIcon, url: "/heatmap" },
+]
+
+const liveTradeSubItems = [
+  { title: "Alpaca Paper Trading", url: "/live/alpaca" },
+  { title: "Binance Sim Trading", url: "/live/binance" },
 ]
 
 const analysisNav = [
@@ -111,6 +120,34 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {/* Live Trading with submenu */}
+              <Collapsible defaultOpen={pathname.startsWith('/live')} asChild>
+                <SidebarMenuItem>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton tooltip="Live Trading" isActive={pathname.startsWith('/live')}>
+                      <Play />
+                      <span>Live Trading</span>
+                      <ChevronRight className="ml-auto transition-transform group-data-[state=open]:rotate-90" />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      {liveTradeSubItems.map((item) => (
+                        <SidebarMenuSubItem key={item.title}>
+                          <SidebarMenuSubButton
+                            asChild
+                            isActive={pathname === item.url}
+                          >
+                            <Link href={item.url} onClick={handleLinkClick}>
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ))}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </SidebarMenuItem>
+              </Collapsible>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
